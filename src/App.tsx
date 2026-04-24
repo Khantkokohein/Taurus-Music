@@ -24,7 +24,8 @@ import {
   CheckCircle2,
   Settings,
   Users,
-  MessageSquare
+  MessageSquare,
+  Smartphone
 } from 'lucide-react';
 import ChatRoom from './components/ChatRoom';
 import { GoogleGenAI, Modality } from "@google/genai";
@@ -74,7 +75,7 @@ export default function App() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [idea, setIdea] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('Pop Essence');
-  const [selectedVoice, setSelectedVoice] = useState('Female Power');
+  const [selectedVoice, setSelectedVoice] = useState('Duet/Pair');
   const [optimizedPrompt, setOptimizedPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
@@ -418,40 +419,40 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6"
+            className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6"
           >
             <motion.div 
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
-              className="bg-zinc-900 border border-zinc-800 rounded-[2.5rem] w-full max-w-4xl p-10 relative overflow-hidden"
+              className="bg-zinc-900 border border-zinc-800 rounded-[2rem] sm:rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-10 relative overflow-y-auto max-h-[90vh] custom-scrollbar"
             >
-              <div className="absolute top-0 right-0 p-8">
-                <button onClick={() => setShowUpgrade(false)} className="text-zinc-500 hover:text-white text-xl">×</button>
+              <div className="absolute top-0 right-0 p-6 sm:p-8">
+                <button onClick={() => setShowUpgrade(false)} className="text-zinc-500 hover:text-white text-3xl sm:text-xl">&times;</button>
               </div>
 
-              <div className="text-center mb-12">
-                <h2 className="text-4xl font-display font-bold mb-4 tracking-tight">Unlock Taurus Prime</h2>
-                <p className="text-zinc-500 max-w-lg mx-auto">Get more songs with 100% weekly refill limits. Choose your plan to start creates.</p>
+              <div className="text-center mb-8 sm:mb-12 mt-4 sm:mt-0">
+                <h2 className="text-3xl sm:text-4xl font-display font-bold mb-3 sm:mb-4 tracking-tight">Unlock Taurus Prime</h2>
+                <p className="text-zinc-500 max-w-lg mx-auto text-sm sm:text-base">Get more songs with 100% weekly refill limits. Choose your plan to start creates.</p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6">
                 {TIERS.map(tier => (
-                  <div key={tier.id} className={`p-8 rounded-3xl border border-zinc-800 bg-zinc-900/30 flex flex-col items-center group hover:border-${tier.color}-500/50 transition-all`}>
-                    <h3 className={`text-xl font-bold mb-2 group-hover:text-${tier.color}-400 transition-colors`}>{tier.name}</h3>
-                    <div className="text-4xl font-display font-black mb-6">{tier.price}</div>
-                    <div className="space-y-3 mb-8 w-full text-sm text-zinc-400">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 size={16} className="text-emerald-500" />
+                  <div key={tier.id} className={`p-5 md:p-8 rounded-2xl md:rounded-3xl border border-zinc-800 bg-zinc-900/30 flex flex-col items-center group hover:border-${tier.color}-500/50 transition-all`}>
+                    <h3 className={`text-lg md:text-xl font-bold mb-1 md:mb-2 group-hover:text-${tier.color}-400 transition-colors`}>{tier.name}</h3>
+                    <div className="text-3xl md:text-4xl font-display font-black mb-4 md:mb-6">{tier.price}</div>
+                    <div className="space-y-2 md:space-y-3 mb-5 md:mb-8 w-full text-xs md:text-sm text-zinc-400">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
                         <span>{tier.credits} Songs / Week</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <RotateCcw size={16} className="text-violet-400" />
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <RotateCcw size={16} className="text-violet-400 shrink-0" />
                         <span>Weekly Refill</span>
                       </div>
                     </div>
                     <button 
                       onClick={() => setShowPayment(true)}
-                      className={`mt-auto w-full py-3 rounded-2xl bg-zinc-100 text-black font-bold hover:bg-white transition-all`}
+                      className={`mt-auto w-full py-2.5 md:py-3 rounded-xl md:rounded-2xl bg-zinc-100 text-black text-sm md:text-base font-bold hover:bg-white transition-all`}
                     >
                       Choose Plan
                     </button>
@@ -459,8 +460,8 @@ export default function App() {
                 ))}
               </div>
               
-              <div className="mt-10 pt-10 border-t border-zinc-800 flex justify-center gap-12 text-zinc-500 text-[10px] uppercase font-bold tracking-widest">
-                <div className="flex items-center gap-2"><Wallet size={14} /> USDT (BEP20)</div>
+              <div className="mt-6 pt-6 sm:mt-10 sm:pt-10 border-t border-zinc-800 flex flex-wrap justify-center gap-4 sm:gap-12 text-zinc-500 text-[10px] uppercase font-bold tracking-widest">
+                <div className="flex items-center gap-2"><Wallet size={14} /> Crypto Payment</div>
                 <div className="flex items-center gap-2"><CreditCard size={14} /> Myanmar Banks</div>
                 <div className="flex items-center gap-2"><ShieldCheck size={14} /> 24/7 Support</div>
               </div>
@@ -478,36 +479,129 @@ export default function App() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[110] bg-black/90 backdrop-blur-2xl flex items-center justify-center p-6"
           >
-            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-10 max-w-md w-full">
-              <h3 className="text-2xl font-bold mb-6">Manual Payment</h3>
-              <div className="space-y-6 text-sm">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 max-w-lg w-full">
+              <h3 className="text-2xl font-bold mb-2">Upgrade to Pro</h3>
+              <p className="text-zinc-400 text-sm mb-6">Select your preferred payment method below.</p>
+              
+              <div className="space-y-4 text-sm max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
+                
+                {/* Global Payments (Stripe) */}
+                <div className="p-4 bg-zinc-800/50 rounded-2xl border border-zinc-700 hover:border-violet-500/50 transition-colors">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h4 className="font-bold text-white flex items-center gap-2">
+                        <CreditCard size={18} className="text-violet-400" />
+                        Apple Pay / Google Pay / Cards
+                      </h4>
+                      <p className="text-zinc-500 text-xs mt-1">Powered by Stripe Integration.</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => alert('In a real app, this redirects to Stripe Checkout for Apple Pay & Google Pay.')}
+                    className="w-full py-2.5 rounded-xl bg-violet-600 text-white font-bold hover:bg-violet-500 transition-colors"
+                  >
+                    Pay via Global Gateway
+                  </button>
+                </div>
+
+                {/* Local Payments (Myanmar) */}
                 <div className="p-4 bg-zinc-800/50 rounded-2xl border border-zinc-700">
-                  <p className="text-zinc-400 mb-1">USDT Address (BEP20)</p>
-                  <p className="font-mono text-white select-all break-all">0x71C7656EC7ab88b098defB751B7401B5f6d8976F</p>
+                  <h4 className="font-bold text-white flex items-center gap-2 mb-4">
+                    <Smartphone size={18} className="text-emerald-400" />
+                    KPay / Wave Money
+                  </h4>
+                  <div className="space-y-3">
+                    <div className="bg-black/50 p-3 rounded-xl border border-zinc-700/50">
+                      <p className="text-zinc-400 text-xs mb-1">Transfer to</p>
+                      <p className="font-bold text-white text-base">09989807081 (U Khant Ko Ko Hein)</p>
+                    </div>
+                    
+                    <button 
+                      onClick={() => alert('For Auto-System: Merchant APIs like 2C2P or direct KBZ/Wave APIs are required. Currently using manual verfication.')}
+                      className="w-full py-2.5 flex items-center justify-center gap-2 rounded-xl bg-emerald-600/20 text-emerald-400 font-bold hover:bg-emerald-600/30 transition-colors"
+                    >
+                      <span>Pay via Auto-Checkout System</span>
+                      <ShieldCheck size={14} />
+                    </button>
+                    
+                    <div className="relative flex items-center py-2">
+                      <div className="flex-grow border-t border-zinc-700"></div>
+                      <span className="flex-shrink-0 mx-4 text-xs text-zinc-500 uppercase tracking-widest">or manual report</span>
+                      <div className="flex-grow border-t border-zinc-700"></div>
+                    </div>
+
+                    <button 
+                      onClick={handleManualPayment}
+                      className="w-full py-2.5 rounded-xl border border-zinc-700 font-bold text-zinc-300 hover:bg-zinc-800 transition-colors"
+                    >
+                      Report Manual Transfer
+                    </button>
+                  </div>
                 </div>
+
+                {/* Crypto Ton Payment */}
                 <div className="p-4 bg-zinc-800/50 rounded-2xl border border-zinc-700">
-                  <p className="text-zinc-400 mb-1">KPay / Wave Money</p>
-                  <p className="font-bold text-white">09989807081 (U Khant Ko Ko Hein)</p>
+                  <h4 className="font-bold text-white flex items-center gap-2 mb-4">
+                    <Wallet size={18} className="text-blue-400" />
+                    Crypto (USDT TON)
+                  </h4>
+                  <p className="font-mono text-zinc-300 text-xs bg-black/50 p-3 rounded-xl border border-zinc-700/50 select-all break-all text-center">
+                    UQBnoZuLED2kPb3XBSWa5BaA6ZPTXZX00jETRbJRKbKBAItg
+                  </p>
                 </div>
-                <div className="bg-violet-600/10 p-4 rounded-2xl border border-violet-500/20 text-violet-400">
-                  <p>Send your payment then click the button below. We will verify your transaction within 1-2 hours.</p>
-                </div>
+
               </div>
-              <div className="mt-8 flex gap-4">
+
+              <div className="mt-6 flex gap-4 pt-6 border-t border-zinc-800">
                 <button 
                   onClick={() => setShowPayment(false)}
-                  className="flex-1 py-3 rounded-xl border border-zinc-700 font-bold hover:bg-zinc-800"
+                  className="flex-1 py-3 rounded-xl bg-zinc-800 font-bold hover:bg-zinc-700 text-white transition-colors"
                 >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleManualPayment}
-                  className="flex-1 py-3 rounded-xl bg-violet-600 font-bold hover:bg-violet-500"
-                >
-                  Report Paid
+                  Close
                 </button>
               </div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Loading Overlay */}
+      <AnimatePresence>
+        {isGenerating && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center"
+          >
+            <motion.div
+              animate={{ 
+                scale: [1, 1.2, 1],
+                rotate: [0, 180, 360]
+              }}
+              transition={{
+                duration: 3,
+                repeat: Infinity,
+                ease: "easeInOut"
+              }}
+              className="w-24 h-24 mb-8 rounded-full bg-gradient-to-tr from-violet-600 to-fuchsia-600 flex items-center justify-center shadow-[0_0_50px_rgba(139,92,246,0.5)]"
+            >
+              <Music size={40} className="text-white" />
+            </motion.div>
+            <h2 className="text-3xl lg:text-5xl font-display font-black text-white mb-4 tracking-tight">Synthesizing Symphony</h2>
+            <p className="text-zinc-400 max-w-sm mx-auto">
+              Our AI is currently composing your track and tuning the vocals. This usually takes around 30 to 60 seconds...
+            </p>
+            
+            <div className="w-full max-w-md bg-zinc-900 h-2 mt-12 rounded-full overflow-hidden border border-zinc-800">
+               <motion.div 
+                 initial={{ width: "0%" }}
+                 animate={{ width: "95%" }}
+                 transition={{ duration: 45, ease: "easeOut" }}
+                 className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full"
+               />
+            </div>
+            <p className="mt-4 text-xs font-mono text-zinc-500 uppercase tracking-widest animate-pulse">Processing lyria-3-pro-preview</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -651,8 +745,8 @@ export default function App() {
         fixed inset-y-0 left-0 z-[70] w-72 border-r border-zinc-800 bg-zinc-900 flex flex-col shrink-0 transition-transform duration-300 lg:relative lg:translate-x-0 lg:bg-zinc-900/30
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
-        <div className="p-6">
-          <div className="flex items-center gap-3 mb-10">
+        <div className="p-6 shrink-0 z-10">
+          <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center shadow-lg shadow-violet-500/20">
               <Music className="w-6 h-6 text-white" />
             </div>
@@ -660,50 +754,47 @@ export default function App() {
               Taurus Music
             </h1>
           </div>
-
-          <div className="space-y-6">
-            <div>
-              <div className="flex items-center justify-between mb-4 px-2">
-                <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Generation History ({history.length})</p>
-              </div>
-              <div className="space-y-1 overflow-y-auto h-[calc(100vh-420px)] custom-scrollbar pr-1">
-                {!user ? (
-                  <div className="px-3 py-10 text-center">
-                    <UserIcon size={24} className="mx-auto mb-2 text-zinc-800" />
-                    <p className="text-xs text-zinc-600">Login to see history</p>
-                  </div>
-                ) : history.length === 0 ? (
-                  <div className="px-3 py-10 text-center">
-                    <History size={24} className="mx-auto mb-2 text-zinc-800" />
-                    <p className="text-xs text-zinc-600">No tracks synthesized yet</p>
-                  </div>
-                ) : (
-                  history.map((song, idx) => (
-                    <button 
-                      key={song.id}
-                      onClick={() => setCurrentSong(song)}
-                      className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-3 ${currentSong?.id === song.id ? 'bg-zinc-800/80 border border-zinc-700/50' : 'hover:bg-zinc-800/30'}`}
-                    >
-                      <div className="w-8 h-8 shrink-0 rounded bg-zinc-800 flex items-center justify-center text-[10px] text-zinc-500 font-mono">
-                        {(idx + 1).toString().padStart(2, '0')}
-                      </div>
-                      <div className="overflow-hidden">
-                        <p className={`text-sm font-medium truncate ${currentSong?.id === song.id ? 'text-white' : 'text-zinc-400'}`}>
-                          {song.idea || 'Untitled Track'}
-                        </p>
-                        <p className="text-[10px] text-zinc-500">
-                          {new Date(song.createdAt).toLocaleDateString()}
-                        </p>
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
         </div>
 
-        <div className="mt-auto p-6 border-t border-zinc-800 space-y-4">
+        <div className="px-6 mb-4 shrink-0">
+          <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Generation History ({history.length})</p>
+        </div>
+        
+        <div className="px-6 space-y-1 overflow-y-auto flex-1 custom-scrollbar min-h-0">
+          {!user ? (
+            <div className="px-3 py-10 text-center">
+              <UserIcon size={24} className="mx-auto mb-2 text-zinc-800" />
+              <p className="text-xs text-zinc-600">Login to see history</p>
+            </div>
+          ) : history.length === 0 ? (
+            <div className="px-3 py-10 text-center">
+              <History size={24} className="mx-auto mb-2 text-zinc-800" />
+              <p className="text-xs text-zinc-600">No tracks synthesized yet</p>
+            </div>
+          ) : (
+            history.map((song, idx) => (
+              <button 
+                key={song.id}
+                onClick={() => setCurrentSong(song)}
+                className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-3 ${currentSong?.id === song.id ? 'bg-zinc-800/80 border border-zinc-700/50' : 'hover:bg-zinc-800/30'}`}
+              >
+                <div className="w-8 h-8 shrink-0 rounded bg-zinc-800 flex items-center justify-center text-[10px] text-zinc-500 font-mono">
+                  {(idx + 1).toString().padStart(2, '0')}
+                </div>
+                <div className="overflow-hidden">
+                  <p className={`text-sm font-medium truncate ${currentSong?.id === song.id ? 'text-white' : 'text-zinc-400'}`}>
+                    {song.idea || 'Untitled Track'}
+                  </p>
+                  <p className="text-[10px] text-zinc-500">
+                    {new Date(song.createdAt).toLocaleDateString()}
+                  </p>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+
+        <div className="shrink-0 p-6 border-t border-zinc-800 space-y-4 max-h-[50vh] overflow-y-auto custom-scrollbar">
           {user ? (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -789,7 +880,7 @@ export default function App() {
             onClick={() => setShowUpgrade(true)}
             className="w-full py-3 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white text-xs font-black uppercase tracking-widest hover:brightness-110 shadow-lg shadow-violet-600/20"
           >
-            Go Premium
+            {profile?.tier !== 'free' && profile?.tier !== undefined ? 'Upgrade Plan' : 'Go Premium'}
           </button>
         </div>
       </aside>
@@ -855,16 +946,23 @@ export default function App() {
                   <p className="text-[8px] lg:text-[10px] text-zinc-500 uppercase font-black tracking-widest mb-0.5 lg:mb-3">Artist Gender/Style</p>
                   <select 
                     value={selectedVoice} 
-                    onChange={(e) => setSelectedVoice(e.target.value)}
+                    onChange={(e) => {
+                      const isFreeUser = profile?.tier === 'free' || !profile?.tier;
+                      if (isFreeUser && e.target.value !== 'Duet/Pair') {
+                        setShowUpgrade(true);
+                      } else {
+                        setSelectedVoice(e.target.value);
+                      }
+                    }}
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-lg lg:rounded-2xl p-1 lg:p-3 text-[9px] lg:text-xs text-white focus:ring-1 focus:ring-violet-500 outline-none"
                   >
-                    <optgroup label="Male Voices" className="bg-zinc-900">
+                    <optgroup label={`Male Voices ${(profile?.tier === 'free' || !profile?.tier) ? '🔒 (Upgrade)' : ''}`} className={`bg-zinc-900 ${(profile?.tier === 'free' || !profile?.tier) ? 'text-zinc-500' : 'text-white'}`}>
                       {VOICES.male.map(v => <option key={v} value={v}>{v}</option>)}
                     </optgroup>
-                    <optgroup label="Female Voices" className="bg-zinc-900">
+                    <optgroup label={`Female Voices ${(profile?.tier === 'free' || !profile?.tier) ? '🔒 (Upgrade)' : ''}`} className={`bg-zinc-900 ${(profile?.tier === 'free' || !profile?.tier) ? 'text-zinc-500' : 'text-white'}`}>
                       {VOICES.female.map(v => <option key={v} value={v}>{v}</option>)}
                     </optgroup>
-                    <optgroup label="Collaborations" className="bg-zinc-900">
+                    <optgroup label="Collaborations" className="bg-zinc-900 text-white">
                       {VOICES.other.map(v => <option key={v} value={v}>{v}</option>)}
                     </optgroup>
                   </select>
