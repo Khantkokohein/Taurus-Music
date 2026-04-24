@@ -1,0 +1,78 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Connection test path
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'koheinkhantko51@gmail.com' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // User Profile
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isSignedIn() && isAdmin();
+      allow create: if isSignedIn() && request.auth.uid == userId 
+        && incoming().uid == request.auth.uid
+        && incoming().email == request.auth.token.email
+        && incoming().dailyGenerationCount == 0
+        && incoming().credits == 0
+        && incoming().tier == 'free'
+        && (incoming().role == 'user' || (incoming().role == 'admin' && request.auth.token.email == 'koheinkhantko51@gmail.com'));
+      allow update: if isAdmin() || (
+        isOwner(userId)
+        && incoming().uid == existing().uid
+        && incoming().role == existing().role
+        && incoming().email == existing().email
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['dailyGenerationCount', 'lastGenerationDate', 'pendingPayment'])
+          || (incoming().credits == existing().credits && incoming().tier == existing().tier)
+        )
+      );
+    }
+
+    // Songs subcollection
+    match /users/{userId}/songs/{songId} {
+      allow list: if isOwner(userId);
+      allow get: if isOwner(userId) && isValidId(songId);
+      allow create: if isOwner(userId)
+        && isValidId(songId)
+        && incoming().userId == request.auth.uid
+        && incoming().audioUrl is string
+        && incoming().audioUrl.size() < 1000
+        && incoming().createdAt == request.time;
+      allow delete: if isOwner(userId);
+    }
+  }
+}

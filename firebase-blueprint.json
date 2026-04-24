@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and usage tracking",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "dailyGenerationCount": { "type": "integer" },
+        "lastGenerationDate": { "type": "string", "format": "date" },
+        "credits": { "type": "number", "default": 0 },
+        "tier": { "enum": ["free", "pro", "prime", "premium"], "default": "free" },
+        "pendingPayment": { "type": "boolean", "default": false },
+        "role": { "enum": ["user", "admin"], "default": "user" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Song": {
+      "title": "Song",
+      "description": "Generated song metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "idea": { "type": "string" },
+        "prompt": { "type": "string" },
+        "audioUrl": { "type": "string" },
+        "lyrics": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "audioUrl"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile and daily limits"
+    },
+    "/users/{userId}/songs/{songId}": {
+      "schema": "Song",
+      "description": "User's generated songs collection"
+    }
+  }
+}

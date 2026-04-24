@@ -1,0 +1,6 @@
+{
+  "name": "Taurus Music",
+  "description": "AI music synthesis platform with vocals, credits system and manual payment integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["AI Music Generation", "Cloud Storage", "User Accounts"]
+}
