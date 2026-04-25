@@ -187,7 +187,16 @@ export default function App() {
     if (isPlaying) {
       audio.pause();
     } else {
-      audio.src = currentSong.audioUrl;
+      if (!currentSong.audioUrl) {
+        setError("Audio source is not available. Please generate the song again.");
+        return;
+      }
+      
+      // Ensure the audio source is set and played
+      if (audio.src !== currentSong.audioUrl) {
+        audio.src = currentSong.audioUrl;
+      }
+      
       audio.play().catch(err => {
         console.error("Playback error:", err);
         setError("Audio playback failed. Please try again.");
@@ -283,14 +292,14 @@ export default function App() {
       if (!audioBase64) {
         throw new Error("The AI model did not return any audio data. Please ensure your API key has Lyria permissions.");
       }
-
-      // Collect audio into blob
+      
+      // Collect audio into blob - Force audio/mpeg as fallback if mimeType is unknown
       const binary = atob(audioBase64);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) {
         bytes[i] = binary.charCodeAt(i);
       }
-      const blob = new Blob([bytes], { type: mimeType });
+      const blob = new Blob([bytes], { type: mimeType && mimeType !== "application/octet-stream" ? mimeType : "audio/mpeg" });
       const audioUrl = URL.createObjectURL(blob);
 
       const newSong = {
