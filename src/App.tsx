@@ -76,43 +76,59 @@ const formatUsd = (value: number) => `$${value % 1 === 0 ? value.toFixed(0) : va
 const MMK_PER_USD = 4000;
 const formatMmk = (usd: number) => `${(usd * MMK_PER_USD).toLocaleString()} MMK`;
 
-const TIERS = (['personal', 'pro', 'prime', 'premium'] as UserTier[]).map((id) => {
+const PLAN_CARD_STYLES = {
+  free: {
+    label: 'Free starter',
+    borderClass: 'hover:border-zinc-500/50',
+    textClass: 'group-hover:text-zinc-100',
+    badgeClass: 'bg-zinc-500/10 text-zinc-300 border-zinc-500/20',
+  },
+  personal: {
+    label: 'Starter creator',
+    borderClass: 'hover:border-emerald-500/50',
+    textClass: 'group-hover:text-emerald-400',
+    badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20',
+  },
+  pro: {
+    label: 'Growing studio',
+    borderClass: 'hover:border-blue-500/50',
+    textClass: 'group-hover:text-blue-400',
+    badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/20',
+  },
+  prime: {
+    label: 'High volume',
+    borderClass: 'hover:border-violet-500/50',
+    textClass: 'group-hover:text-violet-400',
+    badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/20',
+  },
+  premium: {
+    label: 'Business scale',
+    borderClass: 'hover:border-fuchsia-500/50',
+    textClass: 'group-hover:text-fuchsia-400',
+    badgeClass: 'bg-fuchsia-500/10 text-fuchsia-300 border-fuchsia-500/20',
+  },
+} satisfies Record<UserTier, {
+  label: string;
+  borderClass: string;
+  textClass: string;
+  badgeClass: string;
+}>;
+
+const buildPlanCard = (id: UserTier) => {
   const plan = PLAN_CONFIGS[id];
-  const style = {
-    personal: {
-      label: 'Starter creator',
-      borderClass: 'hover:border-emerald-500/50',
-      textClass: 'group-hover:text-emerald-400',
-      badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20',
-    },
-    pro: {
-      label: 'Growing studio',
-      borderClass: 'hover:border-blue-500/50',
-      textClass: 'group-hover:text-blue-400',
-      badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/20',
-    },
-    prime: {
-      label: 'High volume',
-      borderClass: 'hover:border-violet-500/50',
-      textClass: 'group-hover:text-violet-400',
-      badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/20',
-    },
-    premium: {
-      label: 'Business scale',
-      borderClass: 'hover:border-fuchsia-500/50',
-      textClass: 'group-hover:text-fuchsia-400',
-      badgeClass: 'bg-fuchsia-500/10 text-fuchsia-300 border-fuchsia-500/20',
-    },
-  }[id];
+  const style = PLAN_CARD_STYLES[id];
 
   return {
     ...plan,
     ...style,
-    priceLabel: formatUsd(plan.price),
-    mmkPriceLabel: formatMmk(plan.price),
-    durationLabel: plan.durationLabel,
+    priceLabel: plan.price === 0 ? 'Free' : formatUsd(plan.price),
+    mmkPriceLabel: plan.price === 0 ? 'No payment needed' : formatMmk(plan.price),
+    durationLabel: plan.price === 0 ? 'Always available' : plan.durationLabel,
   };
-});
+};
+
+const PLAN_CARDS = (['free', 'personal', 'pro', 'prime', 'premium'] as UserTier[]).map(buildPlanCard);
+const TIERS = (['personal', 'pro', 'prime', 'premium'] as UserTier[]).map(buildPlanCard);
 
 const GENRE_OPTIONS = [
   { id: 'Neon Pulse', description: 'Modern high-energy Electronic/EDM with synth-wave elements' },
@@ -710,7 +726,7 @@ export default function App() {
             <motion.div 
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
-              className="bg-zinc-900 border border-zinc-800 rounded-[2rem] sm:rounded-[2.5rem] w-full max-w-6xl p-6 sm:p-10 relative overflow-y-auto max-h-[90vh] custom-scrollbar"
+              className="bg-zinc-900 border border-zinc-800 rounded-[2rem] sm:rounded-[2.5rem] w-full max-w-7xl p-6 sm:p-10 relative overflow-y-auto max-h-[90vh] custom-scrollbar"
             >
               <div className="absolute top-0 right-0 p-6 sm:p-8">
                 <button onClick={() => setShowUpgrade(false)} className="text-zinc-500 hover:text-white text-3xl sm:text-xl">&times;</button>
@@ -723,8 +739,8 @@ export default function App() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 md:gap-5">
-                {TIERS.map(tier => (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 md:gap-5">
+                {PLAN_CARDS.map(tier => (
                   <div key={tier.id} className={`p-5 md:p-6 rounded-2xl md:rounded-3xl border border-zinc-800 bg-zinc-900/30 flex flex-col group ${tier.borderClass} transition-all`}>
                     <div className={`mb-4 w-fit rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${tier.badgeClass}`}>
                       {tier.label}
@@ -743,16 +759,25 @@ export default function App() {
                         <span>{tier.monthlyLimit} songs / month</span>
                       </div>
                     </div>
-                    <button 
-                      onClick={() => {
-                        setSelectedTier(tier.id);
-                        setPaymentProofFile(null);
-                        setShowPayment(true);
-                      }}
-                      className="mt-auto w-full py-2.5 md:py-3 rounded-xl md:rounded-2xl bg-zinc-100 text-black text-sm md:text-base font-bold hover:bg-white transition-all"
-                    >
-                      Choose Plan
-                    </button>
+                    {tier.id === 'free' ? (
+                      <button
+                        disabled
+                        className="mt-auto w-full py-2.5 md:py-3 rounded-xl md:rounded-2xl bg-zinc-800 text-zinc-400 text-sm md:text-base font-bold cursor-default"
+                      >
+                        {profile?.tier === 'free' || subscriptionExpired ? 'Current Plan' : 'Included'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setSelectedTier(tier.id);
+                          setPaymentProofFile(null);
+                          setShowPayment(true);
+                        }}
+                        className="mt-auto w-full py-2.5 md:py-3 rounded-xl md:rounded-2xl bg-zinc-100 text-black text-sm md:text-base font-bold hover:bg-white transition-all"
+                      >
+                        Choose Plan
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
