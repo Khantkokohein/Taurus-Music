@@ -59,6 +59,8 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({ prompt });
   } catch (error: any) {
     console.error('Optimize prompt API error:', error);
-    return res.status(500).json({ error: error?.message || 'Failed to enhance prompt.' });
+    const message = error?.message || 'Failed to enhance prompt.';
+    const status = message.includes('login') || message.includes('session') ? 401 : 500;
+    return res.status(status).json({ error: message });
   }
 }

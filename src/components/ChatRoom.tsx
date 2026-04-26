@@ -133,6 +133,9 @@ const shouldAskAi = (value: string) => {
 const containsMyanmar = (value: string) => /[\u1000-\u109f]/.test(value);
 
 const postJson = async <T,>(url: string, body: Record<string, unknown>, token: string): Promise<T> => {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 30000);
+
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -140,7 +143,9 @@ const postJson = async <T,>(url: string, body: Record<string, unknown>, token: s
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(body),
+    signal: controller.signal,
   });
+  window.clearTimeout(timeout);
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -364,6 +369,7 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
       });
     } catch (err) {
       console.error("AI Reply Error:", err);
+      setChatError("Taurus AI reply failed. Please refresh and try again.");
     } finally {
       setIsAiReplying(false);
     }

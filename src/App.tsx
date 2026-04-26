@@ -9,6 +9,7 @@ import {
   RotateCcw, 
   Mic2, 
   Volume2,
+  X,
   ChevronRight,
   Plus,
   History,
@@ -266,6 +267,17 @@ export default function App() {
         setError(legacyMessage);
       }
     }
+  };
+
+  const closePlayer = () => {
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    setCurrentSong(null);
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    setShowLyrics(false);
   };
 
   const handleOptimize = async () => {
@@ -1205,6 +1217,14 @@ export default function App() {
                 <Download size={18} />
                 <span className="hidden md:inline">Export MP3</span>
               </a>
+              <button
+                type="button"
+                onClick={closePlayer}
+                title="Close player"
+                className="p-3 lg:p-4 rounded-xl lg:rounded-2xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-red-500/10 hover:border-red-500/30 transition-all active:scale-95"
+              >
+                <X size={18} />
+              </button>
             </div>
           </motion.div>
         )}
