@@ -40,12 +40,17 @@ const createPlan = (id: UserTier, name: string, price: number, weeklyLimit: numb
   monthlyGrossMargin: price - (monthlyLimit * LYRIA_SONG_API_COST_USD),
 });
 
+const createPaidPlan = (id: UserTier, name: string, price: number): PlanConfig => {
+  const monthlyLimit = Math.floor((price * 0.8) / LYRIA_SONG_API_COST_USD);
+  return createPlan(id, name, price, Math.ceil(monthlyLimit / 4), monthlyLimit);
+};
+
 export const PLAN_CONFIGS: Record<UserTier, PlanConfig> = {
   free: createPlan('free', 'Free', 0, 2, 8),
-  personal: createPlan('personal', 'Personal', 5, 6, 24),
-  pro: createPlan('pro', 'Pro', 15, 20, 80),
-  prime: createPlan('prime', 'Prime', 40, 50, 200),
-  premium: createPlan('premium', 'Premium', 200, 200, 800),
+  personal: createPaidPlan('personal', 'Personal', 5),
+  pro: createPaidPlan('pro', 'Pro', 15),
+  prime: createPaidPlan('prime', 'Prime', 40),
+  premium: createPaidPlan('premium', 'Premium', 200),
 };
 
 export const getPlanConfig = (tier?: string | null) => (
@@ -171,11 +176,11 @@ export const claimDailyPointsIfNeeded = async (uid: string, displayName = '') =>
       dailyRewardClaimed = true;
     }
 
-    if (!data.weeklyLimit) {
+    if (data.weeklyLimit !== plan.weeklyLimit) {
       updates.weeklyLimit = plan.weeklyLimit;
     }
 
-    if (!data.monthlyLimit) {
+    if (data.monthlyLimit !== plan.monthlyLimit) {
       updates.monthlyLimit = plan.monthlyLimit;
     }
 
@@ -244,8 +249,8 @@ const getQuotaState = (data: UserProfile) => {
   const plan = getPlanConfig(data.tier);
   const resetWeekly = getDaysSince(data.lastRefillDate) >= 7;
   const resetMonthly = data.lastMonthlyRefillDate !== getMonthKey();
-  const weeklyLimit = data.weeklyLimit || plan.weeklyLimit;
-  const monthlyLimit = data.monthlyLimit || plan.monthlyLimit;
+  const weeklyLimit = plan.weeklyLimit;
+  const monthlyLimit = plan.monthlyLimit;
   const songsUsedThisWeek = resetWeekly ? 0 : (data.songsUsedThisWeek || 0);
   const songsUsedThisMonth = resetMonthly ? 0 : (data.songsUsedThisMonth || 0);
   const weeklyRemaining = Math.max(weeklyLimit - songsUsedThisWeek, 0);
@@ -276,7 +281,7 @@ export const checkGenerationAccess = async (uid: string): Promise<GenerationUsag
   if (isUserBanned(data)) return { allowed: false, mode: 'banned', remaining: 0 };
 
   const quota = getQuotaState(data);
-  if (quota.resetWeekly || quota.resetMonthly || !data.weeklyLimit || !data.monthlyLimit) {
+  if (quota.resetWeekly || quota.resetMonthly || data.weeklyLimit !== quota.weeklyLimit || data.monthlyLimit !== quota.monthlyLimit) {
     await updateDoc(userRef, {
       weeklyLimit: quota.weeklyLimit,
       monthlyLimit: quota.monthlyLimit,

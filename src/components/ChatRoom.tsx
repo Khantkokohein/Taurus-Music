@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Bot, Gift, Loader2, MessageSquare, Music, Send, ShieldAlert, Users, X } from 'lucide-react';
-import { collection, query, orderBy, onSnapshot, limit, serverTimestamp, setDoc, doc, deleteDoc, updateDoc, Timestamp, increment } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, limit, serverTimestamp, setDoc, doc, deleteDoc, updateDoc, Timestamp, increment, getDocs } from 'firebase/firestore';
 import { CHAT_BAN_DURATION_MS, CHAT_BAN_THRESHOLD, db } from '../firebase';
 
 interface Message {
@@ -23,6 +23,11 @@ interface ActiveUser {
   displayName: string;
   photoURL?: string | null;
   lastSeen: number;
+}
+
+interface GiveawayUser {
+  uid: string;
+  displayName: string;
 }
 
 interface ChatBanState {
@@ -427,17 +432,35 @@ export default function ChatRoom({ currentUser, isAdmin = false, onClose }: Chat
 
   const runGiveaway = async () => {
     if (!currentUser || !isAdmin || isGivingAway) return;
-    const candidates = activeUsers.filter(activeUser => activeUser.uid !== currentUser.uid);
-    if (candidates.length === 0) {
-      setChatError("No active users available for giveaway.");
-      return;
-    }
-
-    const winner = candidates[Math.floor(Math.random() * candidates.length)];
     setChatError(null);
     setIsGivingAway(true);
 
     try {
+      let candidates: GiveawayUser[] = activeUsers
+        .filter(activeUser => activeUser.uid !== currentUser.uid)
+        .map(activeUser => ({
+          uid: activeUser.uid,
+          displayName: activeUser.displayName || 'Online user',
+        }));
+
+      if (candidates.length === 0) {
+        const usersSnap = await getDocs(query(collection(db, 'users'), limit(100)));
+        candidates = usersSnap.docs
+          .map(userDoc => {
+            const data = userDoc.data();
+            return {
+              uid: data.uid || userDoc.id,
+              displayName: data.displayName || data.email?.split('@')[0] || 'Taurus user',
+            };
+          })
+          .filter(userData => userData.uid !== currentUser.uid);
+      }
+
+      if (candidates.length === 0) {
+        throw new Error("No user account is available for giveaway.");
+      }
+
+      const winner = candidates[Math.floor(Math.random() * candidates.length)];
       await updateDoc(doc(db, 'users', winner.uid), {
         points: increment(100),
         totalPointsEarned: increment(100),

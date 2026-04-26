@@ -49,7 +49,6 @@ import {
   getBanUntilMillis,
   PLAN_CONFIGS,
   getPlanConfig,
-  LYRIA_SONG_API_COST_USD,
   UserProfile,
   UserTier
 } from './firebase';
@@ -102,9 +101,6 @@ const TIERS = (['personal', 'pro', 'prime', 'premium'] as UserTier[]).map((id) =
     ...plan,
     ...style,
     priceLabel: formatUsd(plan.price),
-    weeklyApiCostLabel: formatUsd(plan.weeklyApiCost),
-    monthlyApiCostLabel: formatUsd(plan.monthlyApiCost),
-    marginLabel: formatUsd(plan.monthlyGrossMargin),
   };
 });
 
@@ -655,7 +651,7 @@ export default function App() {
               <div className="text-center mb-8 sm:mb-12 mt-4 sm:mt-0">
                 <h2 className="text-3xl sm:text-4xl font-display font-bold mb-3 sm:mb-4 tracking-tight">Taurus Creator Plans</h2>
                 <p className="text-zinc-500 max-w-2xl mx-auto text-sm sm:text-base">
-                  Weekly refill plus monthly cap. Pricing is calculated from Lyria generation cost at {formatUsd(LYRIA_SONG_API_COST_USD)} per song.
+                  More songs for every creator. Each plan includes weekly refill and monthly protection.
                 </p>
               </div>
 
@@ -675,16 +671,6 @@ export default function App() {
                       <div className="flex items-center gap-2">
                         <RotateCcw size={16} className="text-violet-400 shrink-0" />
                         <span>{tier.monthlyLimit} songs / month</span>
-                      </div>
-                      <div className="rounded-2xl border border-zinc-800 bg-black/30 p-3 text-[10px] leading-relaxed">
-                        <div className="flex justify-between gap-3">
-                          <span>API cost / month</span>
-                          <span className="font-mono text-zinc-200">{tier.monthlyApiCostLabel}</span>
-                        </div>
-                        <div className="flex justify-between gap-3">
-                          <span>Gross margin</span>
-                          <span className="font-mono text-emerald-300">{tier.marginLabel}</span>
-                        </div>
                       </div>
                     </div>
                     <button 
@@ -724,9 +710,6 @@ export default function App() {
               <p className="text-zinc-400 text-sm mb-4">
                 {selectedTierPlan.priceLabel} for {selectedTierPlan.weeklyLimit} songs/week and {selectedTierPlan.monthlyLimit} songs/month.
               </p>
-              <div className="mb-6 rounded-2xl border border-zinc-800 bg-black/30 p-3 text-xs text-zinc-400">
-                Estimated API cost: {selectedTierPlan.monthlyApiCostLabel}/month. Gross margin before payment fees: {selectedTierPlan.marginLabel}.
-              </div>
               
               <div className="space-y-4 text-sm max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
                 
