@@ -26,7 +26,8 @@ import {
   Settings,
   Users,
   MessageSquare,
-  Smartphone
+  Smartphone,
+  Send
 } from 'lucide-react';
 import ChatRoom from './components/ChatRoom';
 import { 
@@ -46,12 +47,14 @@ import {
   uploadSongAudio,
   unbanUser,
   getBanUntilMillis,
-  SONG_POINT_COST,
+  PLAN_CONFIGS,
+  getPlanConfig,
+  LYRIA_SONG_API_COST_USD,
   UserProfile,
-  Song as FirebaseSong
+  UserTier
 } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { collection, query, orderBy, onSnapshot, limit, where, doc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, limit, where, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 interface Song {
   id: string;
@@ -64,11 +67,46 @@ interface Song {
   createdAt: number;
 }
 
-const TIERS = [
-  { id: 'pro', name: 'Pro', price: '$15', credits: '20', color: 'blue' },
-  { id: 'prime', name: 'Prime', price: '$40', credits: '50', color: 'violet' },
-  { id: 'premium', name: 'Premium', price: '$200', credits: '200 songs/week', color: 'fuchsia' },
-];
+const formatUsd = (value: number) => `$${value % 1 === 0 ? value.toFixed(0) : value.toFixed(2)}`;
+
+const TIERS = (['personal', 'pro', 'prime', 'premium'] as UserTier[]).map((id) => {
+  const plan = PLAN_CONFIGS[id];
+  const style = {
+    personal: {
+      label: 'Starter creator',
+      borderClass: 'hover:border-emerald-500/50',
+      textClass: 'group-hover:text-emerald-400',
+      badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20',
+    },
+    pro: {
+      label: 'Growing studio',
+      borderClass: 'hover:border-blue-500/50',
+      textClass: 'group-hover:text-blue-400',
+      badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/20',
+    },
+    prime: {
+      label: 'High volume',
+      borderClass: 'hover:border-violet-500/50',
+      textClass: 'group-hover:text-violet-400',
+      badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/20',
+    },
+    premium: {
+      label: 'Business scale',
+      borderClass: 'hover:border-fuchsia-500/50',
+      textClass: 'group-hover:text-fuchsia-400',
+      badgeClass: 'bg-fuchsia-500/10 text-fuchsia-300 border-fuchsia-500/20',
+    },
+  }[id];
+
+  return {
+    ...plan,
+    ...style,
+    priceLabel: formatUsd(plan.price),
+    weeklyApiCostLabel: formatUsd(plan.weeklyApiCost),
+    monthlyApiCostLabel: formatUsd(plan.monthlyApiCost),
+    marginLabel: formatUsd(plan.monthlyGrossMargin),
+  };
+});
 
 const GENRES = ['Neon Pulse', 'Golden Vibes', 'Pop Essence', 'Urban Flow', 'Rock Legacy'];
 
@@ -122,6 +160,8 @@ export default function App() {
   const [showPayment, setShowPayment] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  const [showDailyReward, setShowDailyReward] = useState(false);
+  const [selectedTier, setSelectedTier] = useState<UserTier>('personal');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
   const [searchEmail, setSearchEmail] = useState('');
@@ -129,6 +169,14 @@ export default function App() {
   const [newCredits, setNewCredits] = useState<number>(0);
   const accountBanUntil = getBanUntilMillis(profile);
   const isAccountBanned = accountBanUntil > Date.now();
+  const activePlan = getPlanConfig(profile?.tier);
+  const profileWeeklyLimit = profile?.weeklyLimit || activePlan.weeklyLimit;
+  const profileMonthlyLimit = profile?.monthlyLimit || activePlan.monthlyLimit;
+  const weeklyUsed = profile?.songsUsedThisWeek || 0;
+  const monthlyUsed = profile?.songsUsedThisMonth || 0;
+  const weeklyRemaining = Math.max(profileWeeklyLimit - weeklyUsed, 0);
+  const monthlyRemaining = Math.max(profileMonthlyLimit - monthlyUsed, 0);
+  const selectedTierPlan = TIERS.find(tier => tier.id === selectedTier) || TIERS[0];
 
   useEffect(() => {
     if (!profile || profile.role !== 'admin' || !showAdmin) return;
@@ -150,8 +198,13 @@ export default function App() {
         let userProfile = await getUserProfile(authUser.uid);
         if (!userProfile) {
           userProfile = await createUserProfile(authUser.uid, authUser.email || '', authUser.displayName || '');
+          setShowDailyReward(true);
+        } else {
+          const claimedProfile = await claimDailyPointsIfNeeded(authUser.uid, authUser.displayName || '');
+          if (claimedProfile?.dailyRewardClaimed) {
+            setShowDailyReward(true);
+          }
         }
-        await claimDailyPointsIfNeeded(authUser.uid, authUser.displayName || '');
 
         unsubscribeProfile = onSnapshot(doc(db, 'users', authUser.uid), (snapshot) => {
           if (!snapshot.exists()) return;
@@ -280,6 +333,36 @@ export default function App() {
     setShowLyrics(false);
   };
 
+  const handleShareCurrentSong = async () => {
+    if (!user || !currentSong) {
+      setError("Please login and select a song first.");
+      return;
+    }
+
+    if (isAccountBanned) {
+      setError(`Account banned until ${new Date(accountBanUntil).toLocaleDateString()}. Please contact admin.`);
+      return;
+    }
+
+    try {
+      await setDoc(doc(collection(db, 'chatMessages')), {
+        user: user.displayName || user.email?.split('@')[0] || 'Online user',
+        text: `Shared song: ${currentSong.idea || 'Untitled Track'}`,
+        userId: user.uid,
+        isSongShare: true,
+        songId: currentSong.id,
+        songTitle: currentSong.idea || 'Untitled Track',
+        songUrl: currentSong.audioUrl,
+        songMimeType: currentSong.mimeType || 'audio/mpeg',
+        timestamp: serverTimestamp(),
+      });
+      setShowChat(true);
+    } catch (err: any) {
+      console.error("Share Song Error:", err);
+      setError(err.message || "Failed to send song to chat.");
+    }
+  };
+
   const handleOptimize = async () => {
     if (!idea.trim()) return;
     if (!user) {
@@ -323,10 +406,10 @@ export default function App() {
           throw new Error("Your account is banned. Please contact admin.");
         }
         if (access.mode === 'points') {
-          throw new Error(`You need ${SONG_POINT_COST} points to generate one song. Current points: ${access.remaining}.`);
+          throw new Error("Daily points are not enough yet.");
         }
         setShowUpgrade(true);
-        throw new Error("Weekly limit reached. Refills every 7 days!");
+        throw new Error(`Song limit reached. Weekly left: ${access.weeklyRemaining || 0}, monthly left: ${access.monthlyRemaining || 0}.`);
       }
 
       const genreMapping: Record<string, string> = {
@@ -366,10 +449,10 @@ export default function App() {
           throw new Error("Your account is banned. Please contact admin.");
         }
         if (usage.mode === 'points') {
-          throw new Error(`You need ${SONG_POINT_COST} points to save one generated song. Current points: ${usage.remaining}.`);
+          throw new Error("Daily points are not enough yet.");
         }
         setShowUpgrade(true);
-        throw new Error("Weekly limit reached before saving. Please try again after refill.");
+        throw new Error("Song limit reached before saving. Please try again after refill.");
       }
 
       const newSong = {
@@ -383,11 +466,19 @@ export default function App() {
       };
       
       // Usage update locally
-      setProfile(prev => prev ? (
-        usage.mode === 'points'
-          ? { ...prev, points: usage.remaining }
-          : { ...prev, songsUsedThisWeek: (prev.songsUsedThisWeek || 0) + 1 }
-      ) : null);
+      setProfile(prev => {
+        if (!prev) return null;
+        const plan = getPlanConfig(prev.tier);
+        const weeklyLimit = prev.weeklyLimit || plan.weeklyLimit;
+        const monthlyLimit = prev.monthlyLimit || plan.monthlyLimit;
+        return {
+          ...prev,
+          weeklyLimit,
+          monthlyLimit,
+          songsUsedThisWeek: weeklyLimit - (usage.weeklyRemaining ?? Math.max(weeklyLimit - ((prev.songsUsedThisWeek || 0) + 1), 0)),
+          songsUsedThisMonth: monthlyLimit - (usage.monthlyRemaining ?? Math.max(monthlyLimit - ((prev.songsUsedThisMonth || 0) + 1), 0)),
+        };
+      });
 
       await saveSong(user.uid, newSong);
       setCurrentSong({
@@ -410,10 +501,10 @@ export default function App() {
 
   const handleManualPayment = async () => {
     if(!user) return;
-    await requestManualPayment(user.uid);
+    await requestManualPayment(user.uid, selectedTier);
     setShowPayment(false);
-    setProfile(prev => prev ? { ...prev, pendingPayment: true } : null);
-    alert("Payment request sent! Please wait for manual approval.");
+    setProfile(prev => prev ? { ...prev, pendingPayment: true, requestedTier: selectedTier } : null);
+    alert(`Payment request sent for ${selectedTierPlan.name}. Please wait for manual approval.`);
   };
 
   const handleApprove = async (userId: string, tier: string) => {
@@ -473,6 +564,7 @@ export default function App() {
         {showChat && (
           <ChatRoom 
             currentUser={user} 
+            isAdmin={profile?.role === 'admin'}
             onClose={() => setShowChat(false)} 
           />
         )}
@@ -509,6 +601,39 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Daily Reward Popup */}
+      <AnimatePresence>
+        {showDailyReward && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[105] bg-black/70 backdrop-blur-xl flex items-center justify-center p-6"
+          >
+            <motion.div
+              initial={{ scale: 0.94, y: 18 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.94, y: 18 }}
+              className="w-full max-w-sm rounded-[2rem] border border-amber-500/20 bg-zinc-900 p-6 shadow-2xl"
+            >
+              <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-amber-300">
+                <Sparkles size={12} /> Daily Login Ad Reward
+              </div>
+              <h3 className="text-3xl font-display font-black text-white">+10 Points</h3>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+                Claimed for today. Song generation is controlled by your weekly and monthly plan limits.
+              </p>
+              <button
+                onClick={() => setShowDailyReward(false)}
+                className="mt-6 w-full rounded-2xl bg-white py-3 text-sm font-black text-black hover:bg-zinc-200 transition-colors"
+              >
+                Continue
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Upgrade Modal */}
       <AnimatePresence>
         {showUpgrade && (
@@ -521,35 +646,53 @@ export default function App() {
             <motion.div 
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
-              className="bg-zinc-900 border border-zinc-800 rounded-[2rem] sm:rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-10 relative overflow-y-auto max-h-[90vh] custom-scrollbar"
+              className="bg-zinc-900 border border-zinc-800 rounded-[2rem] sm:rounded-[2.5rem] w-full max-w-6xl p-6 sm:p-10 relative overflow-y-auto max-h-[90vh] custom-scrollbar"
             >
               <div className="absolute top-0 right-0 p-6 sm:p-8">
                 <button onClick={() => setShowUpgrade(false)} className="text-zinc-500 hover:text-white text-3xl sm:text-xl">&times;</button>
               </div>
 
               <div className="text-center mb-8 sm:mb-12 mt-4 sm:mt-0">
-                <h2 className="text-3xl sm:text-4xl font-display font-bold mb-3 sm:mb-4 tracking-tight">Unlock Taurus Prime</h2>
-                <p className="text-zinc-500 max-w-lg mx-auto text-sm sm:text-base">Get more songs with 100% weekly refill limits. Choose your plan to start creates.</p>
+                <h2 className="text-3xl sm:text-4xl font-display font-bold mb-3 sm:mb-4 tracking-tight">Taurus Creator Plans</h2>
+                <p className="text-zinc-500 max-w-2xl mx-auto text-sm sm:text-base">
+                  Weekly refill plus monthly cap. Pricing is calculated from Lyria generation cost at {formatUsd(LYRIA_SONG_API_COST_USD)} per song.
+                </p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 md:gap-5">
                 {TIERS.map(tier => (
-                  <div key={tier.id} className={`p-5 md:p-8 rounded-2xl md:rounded-3xl border border-zinc-800 bg-zinc-900/30 flex flex-col items-center group hover:border-${tier.color}-500/50 transition-all`}>
-                    <h3 className={`text-lg md:text-xl font-bold mb-1 md:mb-2 group-hover:text-${tier.color}-400 transition-colors`}>{tier.name}</h3>
-                    <div className="text-3xl md:text-4xl font-display font-black mb-4 md:mb-6">{tier.price}</div>
-                    <div className="space-y-2 md:space-y-3 mb-5 md:mb-8 w-full text-xs md:text-sm text-zinc-400">
-                      <div className="flex items-center gap-2 flex-wrap">
+                  <div key={tier.id} className={`p-5 md:p-6 rounded-2xl md:rounded-3xl border border-zinc-800 bg-zinc-900/30 flex flex-col group ${tier.borderClass} transition-all`}>
+                    <div className={`mb-4 w-fit rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${tier.badgeClass}`}>
+                      {tier.label}
+                    </div>
+                    <h3 className={`text-lg md:text-xl font-bold mb-1 ${tier.textClass} transition-colors`}>{tier.name}</h3>
+                    <div className="text-3xl md:text-4xl font-display font-black mb-4">{tier.priceLabel}</div>
+                    <div className="space-y-2.5 mb-5 w-full text-xs text-zinc-400">
+                      <div className="flex items-center gap-2">
                         <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
-                        <span>{tier.credits} Songs / Week</span>
+                        <span>{tier.weeklyLimit} songs / week</span>
                       </div>
-                      <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex items-center gap-2">
                         <RotateCcw size={16} className="text-violet-400 shrink-0" />
-                        <span>Weekly Refill</span>
+                        <span>{tier.monthlyLimit} songs / month</span>
+                      </div>
+                      <div className="rounded-2xl border border-zinc-800 bg-black/30 p-3 text-[10px] leading-relaxed">
+                        <div className="flex justify-between gap-3">
+                          <span>API cost / month</span>
+                          <span className="font-mono text-zinc-200">{tier.monthlyApiCostLabel}</span>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <span>Gross margin</span>
+                          <span className="font-mono text-emerald-300">{tier.marginLabel}</span>
+                        </div>
                       </div>
                     </div>
                     <button 
-                      onClick={() => setShowPayment(true)}
-                      className={`mt-auto w-full py-2.5 md:py-3 rounded-xl md:rounded-2xl bg-zinc-100 text-black text-sm md:text-base font-bold hover:bg-white transition-all`}
+                      onClick={() => {
+                        setSelectedTier(tier.id);
+                        setShowPayment(true);
+                      }}
+                      className="mt-auto w-full py-2.5 md:py-3 rounded-xl md:rounded-2xl bg-zinc-100 text-black text-sm md:text-base font-bold hover:bg-white transition-all"
                     >
                       Choose Plan
                     </button>
@@ -577,8 +720,13 @@ export default function App() {
             className="fixed inset-0 z-[110] bg-black/90 backdrop-blur-2xl flex items-center justify-center p-6"
           >
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 max-w-lg w-full">
-              <h3 className="text-2xl font-bold mb-2">Upgrade to Pro</h3>
-              <p className="text-zinc-400 text-sm mb-6">Select your preferred payment method below.</p>
+              <h3 className="text-2xl font-bold mb-2">Subscribe to {selectedTierPlan.name}</h3>
+              <p className="text-zinc-400 text-sm mb-4">
+                {selectedTierPlan.priceLabel} for {selectedTierPlan.weeklyLimit} songs/week and {selectedTierPlan.monthlyLimit} songs/month.
+              </p>
+              <div className="mb-6 rounded-2xl border border-zinc-800 bg-black/30 p-3 text-xs text-zinc-400">
+                Estimated API cost: {selectedTierPlan.monthlyApiCostLabel}/month. Gross margin before payment fees: {selectedTierPlan.marginLabel}.
+              </div>
               
               <div className="space-y-4 text-sm max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
                 
@@ -597,7 +745,7 @@ export default function App() {
                     onClick={() => alert('In a real app, this redirects to Stripe Checkout for Apple Pay & Google Pay.')}
                     className="w-full py-2.5 rounded-xl bg-violet-600 text-white font-bold hover:bg-violet-500 transition-colors"
                   >
-                    Pay via Global Gateway
+                    Pay {selectedTierPlan.priceLabel} via Global Gateway
                   </button>
                 </div>
 
@@ -631,7 +779,7 @@ export default function App() {
                       onClick={handleManualPayment}
                       className="w-full py-2.5 rounded-xl border border-zinc-700 font-bold text-zinc-300 hover:bg-zinc-800 transition-colors"
                     >
-                      Report Manual Transfer
+                      Report Manual Transfer for {selectedTierPlan.name}
                     </button>
                   </div>
                 </div>
@@ -740,11 +888,20 @@ export default function App() {
                             <div className="mb-4">
                               <p className="font-bold text-sm text-white">{u.email}</p>
                               <p className="text-[10px] text-zinc-500">UID: {u.uid}</p>
+                              <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-violet-300">
+                                Requested: {getPlanConfig(u.requestedTier || 'personal').name}
+                              </p>
                             </div>
                             <div className="flex flex-wrap gap-2">
-                              <button onClick={() => handleApprove(u.uid, 'pro')} className="flex-1 px-3 py-2 bg-blue-600/10 text-blue-400 border border-blue-500/10 rounded-lg text-xs hover:bg-blue-600 hover:text-white transition-all">Pro</button>
-                              <button onClick={() => handleApprove(u.uid, 'prime')} className="flex-1 px-3 py-2 bg-violet-600/10 text-violet-400 border border-violet-500/10 rounded-lg text-xs hover:bg-violet-600 hover:text-white transition-all">Prime</button>
-                              <button onClick={() => handleApprove(u.uid, 'premium')} className="flex-1 px-3 py-2 bg-fuchsia-600/10 text-fuchsia-400 border border-fuchsia-500/10 rounded-lg text-xs hover:bg-fuchsia-600 hover:text-white transition-all">Premium</button>
+                              {TIERS.map(tier => (
+                                <button
+                                  key={tier.id}
+                                  onClick={() => handleApprove(u.uid, tier.id)}
+                                  className="flex-1 min-w-[74px] px-3 py-2 bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-lg text-xs hover:bg-violet-600 hover:text-white transition-all"
+                                >
+                                  {tier.name}
+                                </button>
+                              ))}
                             </div>
                           </div>
                         ))}
@@ -810,7 +967,7 @@ export default function App() {
                               Save
                             </button>
                           </div>
-                          <p className="text-[9px] text-zinc-600 mt-2 italic">100 points creates 1 song. Users earn 10 points per day.</p>
+                          <p className="text-[9px] text-zinc-600 mt-2 italic">Points are daily reward balance. Song creation is limited by plan quota.</p>
                         </div>
 
                         <div className="pt-4 grid grid-cols-2 gap-2">
@@ -923,47 +1080,31 @@ export default function App() {
 
               <div className="bg-zinc-800/30 rounded-xl p-3 border border-zinc-700/30">
                 <div className="flex justify-between items-center mb-1">
-                  <span className="text-[10px] text-zinc-500 uppercase font-bold">Song Points</span>
-                  <span className="text-[10px] font-bold text-violet-400">{profile?.points || 0} / {SONG_POINT_COST}</span>
+                  <span className="text-[10px] text-zinc-500 uppercase font-bold">{activePlan.name} Quota</span>
+                  <span className="text-[10px] font-bold text-violet-400">{weeklyRemaining} / {profileWeeklyLimit} week</span>
                 </div>
                 <div className="w-full bg-zinc-950 h-1 rounded-full overflow-hidden">
                   <motion.div 
-                    animate={{ width: `${Math.min(((profile?.points || 0) / SONG_POINT_COST) * 100, 100)}%` }}
+                    animate={{ width: `${Math.min((weeklyUsed / profileWeeklyLimit) * 100, 100)}%` }}
                     className="bg-violet-500 h-full shadow-[0_0_10px_rgba(139,92,246,0.5)]" 
                   />
                 </div>
-                <p className="text-[8px] text-zinc-600 mt-2 uppercase font-bold tracking-tighter">+10 points daily · 100 points per song</p>
+                <div className="mt-3 flex items-center justify-between text-[9px] font-bold text-zinc-500">
+                  <span>Monthly left</span>
+                  <span className="font-mono text-zinc-300">{monthlyRemaining} / {profileMonthlyLimit}</span>
+                </div>
+                <div className="mt-1 w-full bg-zinc-950 h-1 rounded-full overflow-hidden">
+                  <motion.div 
+                    animate={{ width: `${Math.min((monthlyUsed / profileMonthlyLimit) * 100, 100)}%` }}
+                    className="bg-emerald-500 h-full shadow-[0_0_10px_rgba(16,185,129,0.35)]" 
+                  />
+                </div>
+                <p className="text-[8px] text-zinc-600 mt-2 uppercase font-bold tracking-tighter">Daily reward: {profile?.points || 0} pts (+10/day)</p>
               </div>
 
               {isAccountBanned && (
                 <div className="bg-red-500/10 rounded-xl p-3 border border-red-500/20 text-[10px] text-red-300 font-bold">
                   Account banned until {new Date(accountBanUntil).toLocaleDateString()}
-                </div>
-              )}
-
-              {profile?.tier !== 'free' && (
-                <div className="bg-amber-500/5 rounded-xl p-3 border border-amber-500/10">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-[10px] text-amber-500/70 uppercase font-black tracking-widest">Songs This Week</span>
-                    <span className="text-[10px] font-mono font-bold text-amber-500">
-                      {Math.max(0, (profile?.weeklyLimit || (profile?.tier === 'premium' ? 200 : profile?.tier === 'prime' ? 50 : 20)) - (profile?.songsUsedThisWeek || 0))} / {profile?.weeklyLimit || (profile?.tier === 'premium' ? 200 : profile?.tier === 'prime' ? 50 : 20)}
-                    </span>
-                  </div>
-                  <div className="w-full bg-zinc-950 h-1 rounded-full overflow-hidden">
-                    {(() => {
-                      const limit = profile?.weeklyLimit || (profile?.tier === 'premium' ? 200 : profile?.tier === 'prime' ? 50 : 20);
-                      const usage = profile?.songsUsedThisWeek || 0;
-                      const width = Math.min((usage / limit) * 100, 100);
-                      return (
-                        <motion.div 
-                          initial={{ width: 0 }}
-                          animate={{ width: `${width}%` }}
-                          className="bg-amber-500 h-full shadow-[0_0_8px_rgba(245,158,11,0.3)]" 
-                        />
-                      );
-                    })()}
-                  </div>
-                  <p className="text-[8px] text-zinc-600 mt-2 uppercase font-bold tracking-tighter">Automatic refill in 7 days</p>
                 </div>
               )}
 
@@ -987,7 +1128,7 @@ export default function App() {
             onClick={() => setShowUpgrade(true)}
             className="w-full py-3 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white text-xs font-black uppercase tracking-widest hover:brightness-110 shadow-lg shadow-violet-600/20"
           >
-            {profile?.tier !== 'free' && profile?.tier !== undefined ? 'Upgrade Plan' : 'Go Premium'}
+            {profile?.tier !== 'free' && profile?.tier !== undefined ? 'Upgrade Plan' : 'View Plans'}
           </button>
         </div>
       </aside>
@@ -1139,7 +1280,7 @@ export default function App() {
             animate={{ y: 0 }}
             className="fixed bottom-0 left-0 right-0 h-24 lg:h-32 bg-zinc-950/90 border-t border-zinc-800 flex items-center px-4 lg:px-12 z-[80] shadow-[0_-30px_60px_rgba(0,0,0,1)] backdrop-blur-3xl"
           >
-            <div className="w-1/4 lg:w-1/3 flex items-center gap-3 lg:gap-6">
+            <div className="w-auto lg:w-1/3 flex items-center gap-3 lg:gap-6">
               <div className="w-12 h-12 lg:w-20 lg:h-20 bg-gradient-to-br from-indigo-600 to-fuchsia-900 rounded-xl lg:rounded-[1.5rem] shadow-2xl flex items-center justify-center shrink-0 border border-white/10 group overflow-hidden">
                 <Music className="w-6 h-6 lg:w-10 lg:h-10 text-white/20 group-hover:scale-110 transition-transform" />
               </div>
@@ -1152,7 +1293,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="flex-1 flex flex-col items-center max-w-xl">
+            <div className="flex-1 min-w-0 flex flex-col items-center max-w-xl">
               <div className="flex items-center gap-4 lg:gap-10 mb-2 lg:mb-4">
                 <button 
                   onClick={() => setShowLyrics(!showLyrics)}
@@ -1196,7 +1337,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="w-1/4 lg:w-1/3 flex justify-end items-center gap-4 lg:gap-10">
+            <div className="shrink-0 lg:w-1/3 flex justify-end items-center gap-2 lg:gap-4">
               <div className="hidden lg:flex items-center gap-4 group">
                 <Volume2 size={20} className="text-zinc-500 group-hover:text-white transition-colors" />
                 <input 
@@ -1209,10 +1350,19 @@ export default function App() {
                   className="w-32 h-1.5 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-zinc-500 group-hover:accent-violet-500"
                 />
               </div>
+              <button
+                type="button"
+                onClick={handleShareCurrentSong}
+                title="Send to Chat"
+                className="p-3 lg:px-5 lg:py-4 rounded-xl lg:rounded-2xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white hover:bg-violet-600/20 hover:border-violet-500/30 font-black text-sm transition-all active:scale-95 flex items-center gap-2"
+              >
+                <Send size={18} />
+                <span className="hidden xl:inline">Send to Chat</span>
+              </button>
               <a 
                 href={currentSong.audioUrl}
                 download={`Taurus-${currentSong.id}.mp3`}
-                className="p-3 lg:px-8 lg:py-4 rounded-xl lg:rounded-2xl bg-zinc-100 hover:bg-white text-black font-black text-sm transition-all shadow-xl active:scale-95 flex items-center gap-2"
+                className="p-3 lg:px-5 xl:px-8 lg:py-4 rounded-xl lg:rounded-2xl bg-zinc-100 hover:bg-white text-black font-black text-sm transition-all shadow-xl active:scale-95 flex items-center gap-2"
               >
                 <Download size={18} />
                 <span className="hidden md:inline">Export MP3</span>

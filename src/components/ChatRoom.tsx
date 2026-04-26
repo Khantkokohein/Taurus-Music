@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
-import { Bot, Loader2, MessageSquare, Send, ShieldAlert, Users, X } from 'lucide-react';
+import { Bot, Gift, Loader2, MessageSquare, Music, Send, ShieldAlert, Users, X } from 'lucide-react';
 import { collection, query, orderBy, onSnapshot, limit, serverTimestamp, setDoc, doc, deleteDoc, updateDoc, Timestamp, increment } from 'firebase/firestore';
 import { CHAT_BAN_DURATION_MS, CHAT_BAN_THRESHOLD, db } from '../firebase';
 
@@ -11,6 +11,11 @@ interface Message {
   timestamp: string | number;
   userId: string;
   isAi?: boolean;
+  isSongShare?: boolean;
+  songId?: string;
+  songTitle?: string;
+  songUrl?: string;
+  songMimeType?: string;
 }
 
 interface ActiveUser {
@@ -36,6 +41,7 @@ interface ChatRoomProps {
     email?: string | null;
     getIdToken?: () => Promise<string>;
   } | null;
+  isAdmin?: boolean;
   onClose: () => void;
 }
 
@@ -168,7 +174,7 @@ const getNextFakeOnline = (current: number) => {
   return candidates[Math.floor(Math.random() * candidates.length)];
 };
 
-export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
+export default function ChatRoom({ currentUser, isAdmin = false, onClose }: ChatRoomProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
@@ -176,6 +182,7 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
   const [chatError, setChatError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [isAiReplying, setIsAiReplying] = useState(false);
+  const [isGivingAway, setIsGivingAway] = useState(false);
   const [fakeOnline, setFakeOnline] = useState(getInitialFakeOnline);
   const scrollRef = useRef<HTMLDivElement>(null);
   const onlineCount = fakeOnline + activeUsers.length;
@@ -212,6 +219,11 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
           timestamp: data.timestamp ? data.timestamp.toMillis() : Date.now(),
           userId: data.userId,
           isAi: data.isAi === true,
+          isSongShare: data.isSongShare === true,
+          songId: data.songId,
+          songTitle: data.songTitle,
+          songUrl: data.songUrl,
+          songMimeType: data.songMimeType,
         } as Message;
       }).reverse(); // Reverse to show oldest first at the top
       setMessages(msgs);
@@ -413,6 +425,38 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
     }
   };
 
+  const runGiveaway = async () => {
+    if (!currentUser || !isAdmin || isGivingAway) return;
+    const candidates = activeUsers.filter(activeUser => activeUser.uid !== currentUser.uid);
+    if (candidates.length === 0) {
+      setChatError("No active users available for giveaway.");
+      return;
+    }
+
+    const winner = candidates[Math.floor(Math.random() * candidates.length)];
+    setChatError(null);
+    setIsGivingAway(true);
+
+    try {
+      await updateDoc(doc(db, 'users', winner.uid), {
+        points: increment(100),
+        totalPointsEarned: increment(100),
+      });
+
+      await setDoc(doc(collection(db, 'chatMessages')), {
+        user: 'Taurus Admin',
+        text: `[Giveaway] ${winner.displayName} won 100 points.`,
+        userId: currentUser.uid,
+        timestamp: serverTimestamp(),
+      });
+    } catch (err) {
+      console.error("Giveaway Error:", err);
+      setChatError("Giveaway failed. Please check admin permission.");
+    } finally {
+      setIsGivingAway(false);
+    }
+  };
+
   const insertAiMention = () => {
     setInputText(prev => prev.startsWith('@ai ') ? prev : `@ai ${prev}`);
   };
@@ -448,6 +492,18 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
             </button>
           </div>
           <div className="flex items-center gap-1.5 overflow-hidden">
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={runGiveaway}
+                disabled={isGivingAway}
+                title="Run giveaway"
+                className="shrink-0 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[9px] font-black text-amber-300 hover:bg-amber-500/20 disabled:opacity-50 flex items-center gap-1"
+              >
+                {isGivingAway ? <Loader2 size={11} className="animate-spin" /> : <Gift size={11} />}
+                GW
+              </button>
+            )}
             {visibleOnlineNames.map(name => (
               <span
                 key={name}
@@ -501,7 +557,17 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
                     ? 'bg-violet-500/10 text-violet-50 border border-violet-500/20 rounded-tl-none'
                     : 'bg-zinc-800 text-zinc-100 rounded-tl-none'}
               `}>
-                {msg.text}
+                {msg.isSongShare && msg.songUrl ? (
+                  <div className="min-w-0 w-56 max-w-full">
+                    <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-violet-200">
+                      <Music size={12} /> Shared Song
+                    </div>
+                    <p className="mb-3 truncate font-bold">{msg.songTitle || msg.text}</p>
+                    <audio controls src={msg.songUrl} className="w-full h-8" />
+                  </div>
+                ) : (
+                  msg.text
+                )}
               </div>
             </div>
               );

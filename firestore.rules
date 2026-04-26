@@ -59,9 +59,13 @@ service cloud.firestore {
           'dailyGenerationCount',
           'lastGenerationDate',
           'pendingPayment',
+          'requestedTier',
           'songsUsedThisWeek',
+          'songsUsedThisMonth',
           'lastRefillDate',
+          'lastMonthlyRefillDate',
           'weeklyLimit',
+          'monthlyLimit',
           'points',
           'lastPointGrantDate',
           'totalPointsEarned'
@@ -104,13 +108,28 @@ service cloud.firestore {
     }
 
     function isUserChatMessage() {
-      return incoming().keys().hasOnly(['user', 'text', 'userId', 'timestamp'])
+      return incoming().keys().hasOnly([
+          'user',
+          'text',
+          'userId',
+          'timestamp',
+          'isSongShare',
+          'songId',
+          'songTitle',
+          'songUrl',
+          'songMimeType'
+        ])
         && incoming().userId == request.auth.uid
         && incoming().user is string
         && incoming().user.size() > 0
         && incoming().user.size() <= 80
         && incoming().timestamp == request.time
-        && isValidChatText();
+        && isValidChatText()
+        && (!('isSongShare' in incoming()) || incoming().isSongShare == true)
+        && (!('songId' in incoming()) || isValidId(incoming().songId))
+        && (!('songTitle' in incoming()) || (incoming().songTitle is string && incoming().songTitle.size() <= 160))
+        && (!('songUrl' in incoming()) || (incoming().songUrl is string && incoming().songUrl.size() < 1000))
+        && (!('songMimeType' in incoming()) || (incoming().songMimeType is string && incoming().songMimeType.size() <= 80));
     }
 
     function isAiChatMessage() {
@@ -143,6 +162,9 @@ service cloud.firestore {
           'weeklyLimit',
           'songsUsedThisWeek',
           'lastRefillDate',
+          'monthlyLimit',
+          'songsUsedThisMonth',
+          'lastMonthlyRefillDate',
           'chatViolationCount',
           'chatBanCount'
         ])
@@ -153,6 +175,10 @@ service cloud.firestore {
         && incoming().points == 10
         && incoming().totalPointsEarned == 10
         && incoming().tier == 'free'
+        && incoming().weeklyLimit == 2
+        && incoming().songsUsedThisWeek == 0
+        && incoming().monthlyLimit == 8
+        && incoming().songsUsedThisMonth == 0
         && (incoming().role == 'user' || (incoming().role == 'admin' && request.auth.token.email == 'koheinkhantko51@gmail.com'));
       allow update: if isAdmin() || isOwnerUsageUpdate(userId) || isOwnerChatBanUpdate(userId);
     }
