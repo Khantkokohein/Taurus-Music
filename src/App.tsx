@@ -40,13 +40,17 @@ import {
   requestManualPayment,
   approvePayment,
   manualUpdateUser,
+  claimDailyPointsIfNeeded,
   saveSong,
   uploadSongAudio,
+  unbanUser,
+  getBanUntilMillis,
+  SONG_POINT_COST,
   UserProfile,
   Song as FirebaseSong
 } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { collection, query, orderBy, onSnapshot, limit, where } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, limit, where, doc } from 'firebase/firestore';
 
 interface Song {
   id: string;
@@ -99,6 +103,8 @@ export default function App() {
   const [searchEmail, setSearchEmail] = useState('');
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [newCredits, setNewCredits] = useState<number>(0);
+  const accountBanUntil = getBanUntilMillis(profile);
+  const isAccountBanned = accountBanUntil > Date.now();
 
   useEffect(() => {
     if (!profile || profile.role !== 'admin' || !showAdmin) return;
@@ -110,25 +116,39 @@ export default function App() {
   }, [profile, showAdmin]);
 
   useEffect(() => {
+    let unsubscribeProfile: (() => void) | undefined;
+
     const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
+      unsubscribeProfile?.();
+      unsubscribeProfile = undefined;
       setUser(authUser);
       if (authUser) {
         let userProfile = await getUserProfile(authUser.uid);
         if (!userProfile) {
-          userProfile = await createUserProfile(authUser.uid, authUser.email || '');
+          userProfile = await createUserProfile(authUser.uid, authUser.email || '', authUser.displayName || '');
         }
-        setProfile(userProfile);
+        await claimDailyPointsIfNeeded(authUser.uid, authUser.displayName || '');
+
+        unsubscribeProfile = onSnapshot(doc(db, 'users', authUser.uid), (snapshot) => {
+          if (!snapshot.exists()) return;
+          const liveProfile = snapshot.data() as UserProfile;
+          setProfile(liveProfile);
+
+          // Auto-open admin if path is /admin and user is admin
+          if (window.location.pathname === '/admin' && liveProfile.role === 'admin') {
+            setShowAdmin(true);
+          }
+        });
         
-        // Auto-open admin if path is /admin and user is admin
-        if (window.location.pathname === '/admin' && userProfile.role === 'admin') {
-          setShowAdmin(true);
-        }
       } else {
         setProfile(null);
         setHistory([]);
       }
     });
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      unsubscribeProfile?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -255,6 +275,11 @@ export default function App() {
       return;
     }
 
+    if (isAccountBanned) {
+      setError(`Account banned until ${new Date(accountBanUntil).toLocaleDateString()}. Please contact admin.`);
+      return;
+    }
+
     const finalPrompt = optimizedPrompt || idea;
     if (!finalPrompt.trim()) return;
     
@@ -264,8 +289,14 @@ export default function App() {
       // 1. Weekly/Daily Usage limit check
       const usage = await checkAndUpdateUsage(user.uid);
       if (!usage.allowed) {
+        if (usage.mode === 'banned') {
+          throw new Error("Your account is banned. Please contact admin.");
+        }
+        if (usage.mode === 'points') {
+          throw new Error(`You need ${SONG_POINT_COST} points to generate one song. Current points: ${usage.remaining}.`);
+        }
         setShowUpgrade(true);
-        throw new Error(profile?.tier === 'free' ? "Daily limit reached (2 songs). Subscribe for more!" : "Weekly limit reached. Refills every 7 days!");
+        throw new Error("Weekly limit reached. Refills every 7 days!");
       }
 
       // 2. Initialize AI (Must be new instance for each call to pick up environment/selected keys)
@@ -336,8 +367,8 @@ export default function App() {
       
       // Usage update locally
       setProfile(prev => prev ? (
-        usage.mode === 'free' 
-          ? { ...prev, dailyGenerationCount: (prev.dailyGenerationCount || 0) + 1 }
+        usage.mode === 'points'
+          ? { ...prev, points: usage.remaining }
           : { ...prev, songsUsedThisWeek: (prev.songsUsedThisWeek || 0) + 1 }
       ) : null);
 
@@ -376,14 +407,30 @@ export default function App() {
   const handleManualUpdate = async () => {
     if (!editingUser) return;
     try {
-      await manualUpdateUser(editingUser.uid, { songsUsedThisWeek: newCredits });
-      alert("Weekly usage updated!");
-      setEditingUser(prev => prev ? { ...prev, songsUsedThisWeek: newCredits } : null);
+      await manualUpdateUser(editingUser.uid, { points: newCredits });
+      alert("User points updated!");
+      setEditingUser(prev => prev ? { ...prev, points: newCredits } : null);
       if (user?.uid === editingUser.uid) {
-        setProfile(prev => prev ? { ...prev, songsUsedThisWeek: newCredits } : null);
+        setProfile(prev => prev ? { ...prev, points: newCredits } : null);
       }
     } catch (err: any) {
-      setError(err.message || "Failed to update usage");
+      setError(err.message || "Failed to update points");
+    }
+  };
+
+  const handleUnban = async () => {
+    if (!editingUser) return;
+    try {
+      await unbanUser(editingUser.uid);
+      alert("User unbanned.");
+      setEditingUser(prev => prev ? {
+        ...prev,
+        chatBannedUntil: undefined,
+        chatBanReason: '',
+        chatViolationCount: 0,
+      } : null);
+    } catch (err: any) {
+      setError(err.message || "Failed to unban user");
     }
   };
 
@@ -394,7 +441,7 @@ export default function App() {
       if (!snapshot.empty) {
         const userData = snapshot.docs[0].data() as UserProfile;
         setEditingUser(userData);
-        setNewCredits(userData.songsUsedThisWeek || 0);
+        setNewCredits(userData.points || 0);
       } else {
         setError("User not found");
         setEditingUser(null);
@@ -652,7 +699,7 @@ export default function App() {
               <div className="flex items-center justify-between mb-8">
                 <div>
                    <h2 className="text-3xl font-display font-bold">Admin Central</h2>
-                   <p className="text-zinc-500">Manage payments and direct user credit overrides.</p>
+                   <p className="text-zinc-500">Manage payments, user points, and bans.</p>
                 </div>
                 <button onClick={() => { setShowAdmin(false); setEditingUser(null); }} className="text-zinc-500 hover:text-white text-2xl">×</button>
               </div>
@@ -689,10 +736,10 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Right Side: Credit Management */}
+                {/* Right Side: Points and Ban Management */}
                 <div className="flex flex-col min-h-0 bg-zinc-800/20 rounded-3xl p-6 border border-zinc-800">
                   <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500 mb-6 flex items-center gap-2">
-                    <Users size={14} /> Manual Credit Override
+                    <Users size={14} /> User Controls
                   </h3>
                   
                   <div className="space-y-6">
@@ -724,12 +771,14 @@ export default function App() {
                           </div>
                           <div>
                             <p className="font-bold text-white">{editingUser.email}</p>
-                            <p className="text-xs text-zinc-500 capitalize">{editingUser.tier} Plan</p>
+                            <p className="text-xs text-zinc-500 capitalize">
+                              {editingUser.tier} Plan · {editingUser.chatViolationCount || 0} strikes
+                            </p>
                           </div>
                         </div>
 
                         <div>
-                          <label className="text-[10px] uppercase font-black text-zinc-500 tracking-widest mb-2 block">Weekly Songs Used</label>
+                          <label className="text-[10px] uppercase font-black text-zinc-500 tracking-widest mb-2 block">User Points</label>
                           <div className="flex gap-3">
                             <input 
                               type="number"
@@ -741,14 +790,15 @@ export default function App() {
                               onClick={handleManualUpdate}
                               className="px-8 bg-amber-600 text-white rounded-xl font-bold hover:bg-amber-500 transition-all shadow-lg shadow-amber-600/20"
                             >
-                              Reset/Set
+                              Save
                             </button>
                           </div>
-                          <p className="text-[9px] text-zinc-600 mt-2 italic">Set to 0 to give full songs for the week.</p>
+                          <p className="text-[9px] text-zinc-600 mt-2 italic">100 points creates 1 song. Users earn 10 points per day.</p>
                         </div>
 
-                        <div className="pt-4 flex gap-2">
-                          <button onClick={() => setNewCredits(0)} className="flex-1 py-2 rounded-lg bg-zinc-800 text-[10px] font-bold text-zinc-400 hover:text-white transition-colors">Reset Week</button>
+                        <div className="pt-4 grid grid-cols-2 gap-2">
+                          <button onClick={() => setNewCredits(0)} className="py-2 rounded-lg bg-zinc-800 text-[10px] font-bold text-zinc-400 hover:text-white transition-colors">Set 0 Points</button>
+                          <button onClick={handleUnban} className="py-2 rounded-lg bg-emerald-600/10 border border-emerald-500/20 text-[10px] font-bold text-emerald-400 hover:bg-emerald-600 hover:text-white transition-colors">Unban User</button>
                         </div>
                       </motion.div>
                     )}
@@ -856,16 +906,23 @@ export default function App() {
 
               <div className="bg-zinc-800/30 rounded-xl p-3 border border-zinc-700/30">
                 <div className="flex justify-between items-center mb-1">
-                  <span className="text-[10px] text-zinc-500 uppercase font-bold">Daily Free</span>
-                  <span className="text-[10px] font-bold text-violet-400">{profile?.dailyGenerationCount || 0} / 2</span>
+                  <span className="text-[10px] text-zinc-500 uppercase font-bold">Song Points</span>
+                  <span className="text-[10px] font-bold text-violet-400">{profile?.points || 0} / {SONG_POINT_COST}</span>
                 </div>
                 <div className="w-full bg-zinc-950 h-1 rounded-full overflow-hidden">
                   <motion.div 
-                    animate={{ width: `${Math.min(((profile?.dailyGenerationCount || 0) / 2) * 100, 100)}%` }}
+                    animate={{ width: `${Math.min(((profile?.points || 0) / SONG_POINT_COST) * 100, 100)}%` }}
                     className="bg-violet-500 h-full shadow-[0_0_10px_rgba(139,92,246,0.5)]" 
                   />
                 </div>
+                <p className="text-[8px] text-zinc-600 mt-2 uppercase font-bold tracking-tighter">+10 points daily · 100 points per song</p>
               </div>
+
+              {isAccountBanned && (
+                <div className="bg-red-500/10 rounded-xl p-3 border border-red-500/20 text-[10px] text-red-300 font-bold">
+                  Account banned until {new Date(accountBanUntil).toLocaleDateString()}
+                </div>
+              )}
 
               {profile?.tier !== 'free' && (
                 <div className="bg-amber-500/5 rounded-xl p-3 border border-amber-500/10">
@@ -1031,7 +1088,7 @@ export default function App() {
                 <div className="flex gap-2 lg:gap-4 w-full sm:w-auto">
                   <button 
                     onClick={handleOptimize}
-                    disabled={isOptimizing || !idea}
+                    disabled={isOptimizing || !idea || isAccountBanned}
                     className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 lg:px-6 py-2 lg:py-3 rounded-xl lg:rounded-2xl bg-zinc-900 group border border-zinc-800 text-[10px] lg:text-xs font-bold text-zinc-400 transition-all hover:bg-zinc-800 hover:text-white disabled:opacity-50"
                   >
                     <Mic2 size={14} className="group-hover:text-violet-400 transition-colors" />
@@ -1041,10 +1098,10 @@ export default function App() {
                 </div>
                 <button 
                   onClick={handleGenerate}
-                  disabled={isGenerating || !idea}
+                  disabled={isGenerating || !idea || isAccountBanned}
                   className="w-full sm:w-auto px-6 lg:px-14 py-3 lg:py-5 rounded-xl lg:rounded-[2rem] bg-indigo-600 hover:bg-indigo-500 text-white font-black text-sm lg:text-lg flex items-center justify-center gap-3 lg:gap-4 shadow-2xl shadow-indigo-600/30 transition-all active:scale-95 disabled:opacity-50"
                 >
-                  <span>{isGenerating ? 'Synthesizing...' : 'Generate Symphony'}</span>
+                  <span>{isAccountBanned ? 'Account Banned' : isGenerating ? 'Synthesizing...' : 'Generate Symphony'}</span>
                   {isGenerating ? (
                     <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}>
                        <RotateCcw size={18} />

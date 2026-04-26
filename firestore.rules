@@ -55,12 +55,16 @@ service cloud.firestore {
       return isOwner(userId)
         && immutableUserFieldsValid()
         && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName',
           'dailyGenerationCount',
           'lastGenerationDate',
           'pendingPayment',
           'songsUsedThisWeek',
           'lastRefillDate',
-          'weeklyLimit'
+          'weeklyLimit',
+          'points',
+          'lastPointGrantDate',
+          'totalPointsEarned'
         ]);
     }
 
@@ -72,10 +76,13 @@ service cloud.firestore {
           'chatBanReason',
           'chatBannedAt',
           'chatLastViolation',
-          'chatBanCount'
+          'chatLastViolationAt',
+          'chatBanCount',
+          'chatViolationCount'
         ])
-        && incoming().chatBannedUntil is timestamp
-        && incoming().chatBannedUntil > request.time;
+        && (!('chatBannedUntil' in incoming())
+          || incoming().chatBannedUntil == null
+          || incoming().chatBannedUntil is timestamp);
     }
 
     function isChatAllowed() {
@@ -123,19 +130,27 @@ service cloud.firestore {
         && incoming().keys().hasOnly([
           'uid',
           'email',
+          'displayName',
           'dailyGenerationCount',
           'lastGenerationDate',
           'credits',
+          'points',
+          'lastPointGrantDate',
+          'totalPointsEarned',
           'tier',
           'role',
           'weeklyLimit',
           'songsUsedThisWeek',
-          'lastRefillDate'
+          'lastRefillDate',
+          'chatViolationCount',
+          'chatBanCount'
         ])
         && incoming().uid == request.auth.uid
         && incoming().email == request.auth.token.email
         && incoming().dailyGenerationCount == 0
         && incoming().credits == 0
+        && incoming().points == 10
+        && incoming().totalPointsEarned == 10
         && incoming().tier == 'free'
         && (incoming().role == 'user' || (incoming().role == 'admin' && request.auth.token.email == 'koheinkhantko51@gmail.com'));
       allow update: if isAdmin() || isOwnerUsageUpdate(userId) || isOwnerChatBanUpdate(userId);
@@ -166,6 +181,7 @@ service cloud.firestore {
       allow list: if isOwner(userId);
       allow get: if isOwner(userId) && isValidId(songId);
       allow create: if isOwner(userId)
+        && isChatAllowed()
         && isValidId(songId)
         && incoming().userId == request.auth.uid
         && incoming().audioUrl is string

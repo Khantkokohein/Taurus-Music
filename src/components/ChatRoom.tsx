@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
-import { Bot, Loader2, MessageSquare, Send, ShieldAlert, User, Users, X } from 'lucide-react';
+import { Bot, Loader2, MessageSquare, Send, ShieldAlert, Users, X } from 'lucide-react';
 import { GoogleGenAI } from '@google/genai';
 import { collection, query, orderBy, onSnapshot, limit, serverTimestamp, setDoc, doc, deleteDoc, updateDoc, Timestamp, increment } from 'firebase/firestore';
-import { db } from '../firebase';
+import { CHAT_BAN_DURATION_MS, CHAT_BAN_THRESHOLD, db } from '../firebase';
 
 interface Message {
   id: string;
@@ -16,8 +16,6 @@ interface Message {
 
 interface ActiveUser {
   uid: string;
-  name: string;
-  photoURL?: string | null;
   lastSeen: number;
 }
 
@@ -25,6 +23,8 @@ interface ChatBanState {
   active: boolean;
   until?: number;
   reason?: string;
+  violationCount: number;
+  knownName?: string;
 }
 
 interface ChatRoomProps {
@@ -37,8 +37,9 @@ interface ChatRoomProps {
   onClose: () => void;
 }
 
-const CHAT_BAN_DURATION_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_WINDOW_MS = 60 * 1000;
+const FAKE_ONLINE_MIN = 11;
+const FAKE_ONLINE_MAX = 32;
 const MAX_MESSAGE_LENGTH = 500;
 const BLOCKED_TERMS = [
   'fuck',
@@ -53,6 +54,38 @@ const BLOCKED_TERMS = [
   'လိုး',
   'ဖာ',
   'ဖင်',
+];
+
+const AI_KEYWORDS = [
+  '@ai',
+  '@taurus',
+  'သီချင်းရေးပေး',
+  'အချစ်သီချင်းရေးပေး',
+  'အချစ်သီချင်း',
+  'စာသားရေးပေး',
+  'သီချင်းစာသား',
+  'တေးရေး',
+  'သံစဉ်',
+  'ချစ်သီချင်း',
+  'subscribe လုပ်ချင်တယ်',
+  'subscribe',
+  'subscription',
+  'premium',
+  'prime',
+  'pro plan',
+  'payment',
+  'upgrade',
+  'lyrics',
+  'write a song',
+  'love song',
+  'chorus',
+  'verse',
+  'melody',
+  'beat',
+  'rap',
+  'edm',
+  'music prompt',
+  'song idea',
 ];
 
 const getDisplayName = (currentUser: ChatRoomProps['currentUser']) => (
@@ -75,19 +108,39 @@ const containsBlockedTerm = (value: string) => {
 
 const shouldAskAi = (value: string) => {
   const normalized = normalizeMessage(value);
-  return normalized.includes('@ai') || normalized.includes('@taurus');
+  return AI_KEYWORDS.some(keyword => normalized.includes(normalizeMessage(keyword)));
+};
+
+const containsMyanmar = (value: string) => /[\u1000-\u109f]/.test(value);
+
+const getInitialFakeOnline = () => (
+  FAKE_ONLINE_MIN + Math.floor(Math.random() * (FAKE_ONLINE_MAX - FAKE_ONLINE_MIN + 1))
+);
+
+const getNextFakeOnline = (current: number) => {
+  const delta = Math.floor(Math.random() * 5) - 2;
+  return Math.max(FAKE_ONLINE_MIN, Math.min(FAKE_ONLINE_MAX, current + delta));
 };
 
 export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
-  const [banState, setBanState] = useState<ChatBanState>({ active: false });
+  const [banState, setBanState] = useState<ChatBanState>({ active: false, violationCount: 0 });
   const [chatError, setChatError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [isAiReplying, setIsAiReplying] = useState(false);
+  const [fakeOnline, setFakeOnline] = useState(getInitialFakeOnline);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const connectedUsers = activeUsers.length;
+  const onlineCount = fakeOnline + activeUsers.length;
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFakeOnline(prev => getNextFakeOnline(prev));
+    }, 9000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (!currentUser) {
@@ -126,8 +179,6 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
         if (lastSeenTime && now - lastSeenTime < ACTIVE_WINDOW_MS) {
           users.push({
             uid: data.userId || doc.id,
-            name: data.displayName || data.email?.split('@')[0] || 'Anonymous',
-            photoURL: data.photoURL || null,
             lastSeen: lastSeenTime,
           });
         }
@@ -145,7 +196,7 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
 
   useEffect(() => {
     if (!currentUser) {
-      setBanState({ active: false });
+      setBanState({ active: false, violationCount: 0 });
       return;
     }
 
@@ -156,6 +207,8 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
         active: bannedUntil > Date.now(),
         until: bannedUntil || undefined,
         reason: data?.chatBanReason,
+        violationCount: data?.chatViolationCount || 0,
+        knownName: data?.displayName || getDisplayName(currentUser),
       });
     }, (error) => {
       console.error("Ban State Error:", error);
@@ -192,21 +245,41 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
     }
   }, [messages]);
 
-  const applyAutoBan = async (violationText: string) => {
+  const recordViolation = async (violationText: string) => {
     if (!currentUser) return;
+    const nextViolationCount = (banState.violationCount || 0) + 1;
+    const shouldBan = nextViolationCount >= CHAT_BAN_THRESHOLD;
     const bannedUntil = Date.now() + CHAT_BAN_DURATION_MS;
-    await updateDoc(doc(db, 'users', currentUser.uid), {
-      chatBannedUntil: Timestamp.fromDate(new Date(bannedUntil)),
-      chatBanReason: 'Auto-ban: inappropriate language',
-      chatBannedAt: serverTimestamp(),
+
+    const updates: Record<string, any> = {
+      chatViolationCount: nextViolationCount,
       chatLastViolation: violationText.slice(0, 240),
-      chatBanCount: increment(1),
-    });
-    setBanState({
-      active: true,
-      until: bannedUntil,
-      reason: 'Auto-ban: inappropriate language',
-    });
+      chatLastViolationAt: serverTimestamp(),
+    };
+
+    if (shouldBan) {
+      updates.chatBannedUntil = Timestamp.fromDate(new Date(bannedUntil));
+      updates.chatBanReason = 'Auto-ban: 3 inappropriate messages';
+      updates.chatBannedAt = serverTimestamp();
+      updates.chatBanCount = increment(1);
+    }
+
+    await updateDoc(doc(db, 'users', currentUser.uid), updates);
+
+    if (shouldBan) {
+      setBanState(prev => ({
+        ...prev,
+        active: true,
+        until: bannedUntil,
+        reason: 'Auto-ban: 3 inappropriate messages',
+        violationCount: nextViolationCount,
+      }));
+    } else {
+      setBanState(prev => ({
+        ...prev,
+        violationCount: nextViolationCount,
+      }));
+    }
   };
 
   const sendAiReply = async (sourceText: string) => {
@@ -215,12 +288,15 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
     setIsAiReplying(true);
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const userName = banState.knownName || getDisplayName(currentUser);
+      const languageHint = containsMyanmar(sourceText) ? 'Myanmar/Burmese' : 'English';
+      const recentContext = messages.slice(-6).map(message => `${message.user}: ${message.text}`).join('\n');
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         config: {
-          systemInstruction: "You are Taurus AI, a concise music producer assistant inside a live chat. Reply in 1-2 short sentences. Give helpful production, lyrics, melody, or arrangement advice. Do not use abusive language.",
+          systemInstruction: `You are Taurus AI inside a live music creation chat. Remember and address the user by name: ${userName}. Reply in ${languageHint}; if the user mixes languages, follow the user's dominant language. Reply concisely unless the user asks for lyrics. If the user asks to write a song or lyrics, provide usable song lyrics with verse and chorus sections. If the user asks about subscribe, payment, premium, pro, prime, or upgrade, explain that they can request a plan and wait for admin approval. Do not use abusive language.`,
         },
-        contents: sourceText.replace(/@ai|@taurus/gi, '').trim(),
+        contents: `Recent chat:\n${recentContext || 'No recent messages.'}\n\nCurrent message from ${userName}:\n${sourceText.replace(/@ai|@taurus/gi, '').trim()}`,
       });
 
       const reply = response.text?.trim();
@@ -252,8 +328,11 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
     try {
       setIsSending(true);
       if (containsBlockedTerm(textToSend)) {
-        await applyAutoBan(textToSend);
-        setChatError("Message blocked. This account is paused from chat for 24 hours.");
+        const nextCount = (banState.violationCount || 0) + 1;
+        await recordViolation(textToSend);
+        setChatError(nextCount >= CHAT_BAN_THRESHOLD
+          ? "Message deleted. This account is banned for 1 month after 3 violations."
+          : `Message deleted. Warning ${nextCount}/${CHAT_BAN_THRESHOLD}.`);
         return;
       }
 
@@ -281,7 +360,7 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
   };
 
   const banLabel = banState.until
-    ? `Chat paused until ${new Date(banState.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    ? `Banned until ${new Date(banState.until).toLocaleDateString()}`
     : 'Chat paused';
 
   return (
@@ -301,7 +380,7 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
               <h3 className="font-bold text-sm">Producer Chat</h3>
               <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 uppercase tracking-widest font-black">
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                {connectedUsers || 0} Active
+                {onlineCount} Online
               </div>
             </div>
           </div>
@@ -309,22 +388,6 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
             <X size={20} />
           </button>
         </div>
-        {activeUsers.length > 0 && (
-          <div className="mt-4 flex items-center gap-2 overflow-hidden">
-            {activeUsers.slice(0, 5).map(activeUser => (
-              <div key={activeUser.uid} className="flex items-center gap-1.5 min-w-0 rounded-full bg-zinc-950/70 border border-zinc-800 px-2 py-1">
-                <div className="w-5 h-5 rounded-full bg-zinc-800 overflow-hidden flex items-center justify-center text-zinc-500 shrink-0">
-                  {activeUser.photoURL ? (
-                    <img src={activeUser.photoURL} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <User size={12} />
-                  )}
-                </div>
-                <span className="text-[10px] text-zinc-400 font-bold truncate max-w-16">{activeUser.name}</span>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       <div 
