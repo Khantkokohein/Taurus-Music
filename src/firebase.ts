@@ -157,7 +157,24 @@ export const requestManualPayment = async (uid: string) => {
   await updateDoc(userRef, { pendingPayment: true });
 };
 
-export const checkAndUpdateUsage = async (uid: string): Promise<{ allowed: boolean; mode: 'points' | 'tier' | 'banned'; remaining: number }> => {
+export type GenerationUsageResult = {
+  allowed: boolean;
+  mode: 'points' | 'tier' | 'banned';
+  remaining: number;
+};
+
+const getTierLimit = (data: UserProfile) => (
+  data.weeklyLimit || (data.tier === 'premium' ? 200 : data.tier === 'prime' ? 50 : 20)
+);
+
+const getDaysSince = (dateString?: string) => {
+  const now = new Date();
+  const refillDate = new Date(dateString || '2000-01-01');
+  const diffTime = Math.abs(now.getTime() - refillDate.getTime());
+  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+};
+
+export const checkGenerationAccess = async (uid: string): Promise<GenerationUsageResult> => {
   const userRef = doc(db, 'users', uid);
   await claimDailyPointsIfNeeded(uid);
   
@@ -167,47 +184,73 @@ export const checkAndUpdateUsage = async (uid: string): Promise<{ allowed: boole
   const data = userSnap.data() as UserProfile;
   if (isUserBanned(data)) return { allowed: false, mode: 'banned', remaining: 0 };
 
-  const now = new Date();
-  const today = now.toISOString().split('T')[0];
-  
-  // Weekly Refill Logic for Tier users
   if (data.tier !== 'free') {
-    // Ensure fields exist for old accounts
-    const weeklyLimit = data.weeklyLimit || (data.tier === 'premium' ? 200 : data.tier === 'prime' ? 50 : 20);
+    const weeklyLimit = getTierLimit(data);
     const songsUsedThisWeek = data.songsUsedThisWeek || 0;
-
-    const refillDateString = data.lastRefillDate || '2000-01-01';
-    const refillDate = new Date(refillDateString);
-    const diffTime = Math.abs(now.getTime() - refillDate.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const diffDays = getDaysSince(data.lastRefillDate);
 
     if (diffDays >= 7) {
-      // It's been a week or more, refill
       await updateDoc(userRef, {
-        songsUsedThisWeek: 1,
-        lastRefillDate: today,
-        weeklyLimit: weeklyLimit // Sync the field if it was missing
+        songsUsedThisWeek: 0,
+        lastRefillDate: getTodayKey(),
+        weeklyLimit,
       });
-      return { allowed: true, mode: 'tier', remaining: weeklyLimit - 1 };
+      return { allowed: true, mode: 'tier', remaining: weeklyLimit };
     }
 
-    if (songsUsedThisWeek < weeklyLimit) {
-      await updateDoc(userRef, {
-        songsUsedThisWeek: increment(1),
-        weeklyLimit: weeklyLimit // Sync the field if it was missing
-      });
-      return { allowed: true, mode: 'tier', remaining: weeklyLimit - (songsUsedThisWeek + 1) };
-    }
+    return {
+      allowed: songsUsedThisWeek < weeklyLimit,
+      mode: 'tier',
+      remaining: Math.max(weeklyLimit - songsUsedThisWeek, 0),
+    };
   }
+
+  const points = data.points || 0;
+  return {
+    allowed: points >= SONG_POINT_COST,
+    mode: 'points',
+    remaining: points,
+  };
+};
+
+export const consumeGenerationCredit = async (uid: string): Promise<GenerationUsageResult> => {
+  const userRef = doc(db, 'users', uid);
+  const today = getTodayKey();
 
   return runTransaction(db, async (transaction) => {
     const freshSnap = await transaction.get(userRef);
     if (!freshSnap.exists()) return { allowed: false, mode: 'points' as const, remaining: 0 };
 
-    const freshData = freshSnap.data() as UserProfile;
-    if (isUserBanned(freshData)) return { allowed: false, mode: 'banned' as const, remaining: 0 };
+    const data = freshSnap.data() as UserProfile;
+    if (isUserBanned(data)) return { allowed: false, mode: 'banned' as const, remaining: 0 };
 
-    const points = freshData.points || 0;
+    if (data.tier !== 'free') {
+      const weeklyLimit = getTierLimit(data);
+      const songsUsedThisWeek = data.songsUsedThisWeek || 0;
+      const diffDays = getDaysSince(data.lastRefillDate);
+
+      if (diffDays >= 7) {
+        transaction.update(userRef, {
+          songsUsedThisWeek: 1,
+          lastRefillDate: today,
+          weeklyLimit,
+        });
+        return { allowed: true, mode: 'tier' as const, remaining: weeklyLimit - 1 };
+      }
+
+      if (songsUsedThisWeek < weeklyLimit) {
+        const remaining = weeklyLimit - (songsUsedThisWeek + 1);
+        transaction.update(userRef, {
+          songsUsedThisWeek: increment(1),
+          weeklyLimit,
+        });
+        return { allowed: true, mode: 'tier' as const, remaining };
+      }
+
+      return { allowed: false, mode: 'tier' as const, remaining: 0 };
+    }
+
+    const points = data.points || 0;
     if (points < SONG_POINT_COST) {
       return { allowed: false, mode: 'points' as const, remaining: points };
     }
@@ -217,6 +260,8 @@ export const checkAndUpdateUsage = async (uid: string): Promise<{ allowed: boole
     return { allowed: true, mode: 'points' as const, remaining };
   });
 };
+
+export const checkAndUpdateUsage = consumeGenerationCredit;
 
 export const saveSong = async (userId: string, song: Omit<Song, 'userId' | 'createdAt'>) => {
   const songRef = doc(db, 'users', userId, 'songs', song.id);

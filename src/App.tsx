@@ -28,7 +28,6 @@ import {
   Smartphone
 } from 'lucide-react';
 import ChatRoom from './components/ChatRoom';
-import { GoogleGenAI, Modality } from "@google/genai";
 import { 
   auth, 
   db, 
@@ -36,7 +35,8 @@ import {
   logout, 
   getUserProfile, 
   createUserProfile, 
-  checkAndUpdateUsage, 
+  checkGenerationAccess,
+  consumeGenerationCredit,
   requestManualPayment,
   approvePayment,
   manualUpdateUser,
@@ -75,6 +75,29 @@ const VOICES = {
   male: ['Male Edge', 'Male Deep', 'Male High', 'Male Soul', 'Male Smooth'],
   female: ['Female Eager', 'Female Soft', 'Female Power', 'Female Soul', 'Female Pop'],
   other: ['Duet/Pair']
+};
+
+const postJson = async <T,>(url: string, body: Record<string, unknown>): Promise<T> => {
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) {
+    throw new Error('Please login with Gmail to continue.');
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || 'Request failed. Please try again.');
+  }
+
+  return payload as T;
 };
 
 export default function App() {
@@ -247,20 +270,16 @@ export default function App() {
 
   const handleOptimize = async () => {
     if (!idea.trim()) return;
+    if (!user) {
+      setError("Please login with Gmail to enhance prompts.");
+      return;
+    }
     setIsOptimizing(true);
     setError(null);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        config: {
-          systemInstruction: "You are a professional music producer. Expand music ideas into detailed prompts. Keep it under 200 chars. Return ONLY the enhanced prompt text.",
-        },
-        contents: idea
-      });
-      
-      if (response.text) {
-        setOptimizedPrompt(response.text.replace(/^["']|["']$/g, ''));
+      const response = await postJson<{ prompt: string }>('/api/optimize-prompt', { idea });
+      if (response.prompt) {
+        setOptimizedPrompt(response.prompt);
       }
     } catch (err: any) {
       setError(err.message || 'Failed to enhance prompt');
@@ -286,22 +305,18 @@ export default function App() {
     setIsGenerating(true);
     setError(null);
     try {
-      // 1. Weekly/Daily Usage limit check
-      const usage = await checkAndUpdateUsage(user.uid);
-      if (!usage.allowed) {
-        if (usage.mode === 'banned') {
+      const access = await checkGenerationAccess(user.uid);
+      if (!access.allowed) {
+        if (access.mode === 'banned') {
           throw new Error("Your account is banned. Please contact admin.");
         }
-        if (usage.mode === 'points') {
-          throw new Error(`You need ${SONG_POINT_COST} points to generate one song. Current points: ${usage.remaining}.`);
+        if (access.mode === 'points') {
+          throw new Error(`You need ${SONG_POINT_COST} points to generate one song. Current points: ${access.remaining}.`);
         }
         setShowUpgrade(true);
         throw new Error("Weekly limit reached. Refills every 7 days!");
       }
 
-      // 2. Initialize AI (Must be new instance for each call to pick up environment/selected keys)
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      
       const genreMapping: Record<string, string> = {
         'Neon Pulse': 'Modern high-energy Electronic/EDM with synth-wave elements',
         'Golden Vibes': 'Acoustic, warm, and uplifting soulful atmosphere',
@@ -311,38 +326,17 @@ export default function App() {
       };
 
       const genreDescription = genreMapping[selectedGenre] || selectedGenre;
-      const fullPrompt = `Generate a professional high-quality ${genreDescription} song in .MP3 format. Style: ${selectedVoice}. Theme: ${finalPrompt}. Voice instructions: Use a professional ${selectedVoice} singer.`;
-
-      const result = await ai.models.generateContent({
-        model: "lyria-3-pro-preview",
-        contents: fullPrompt,
-        config: {
-          responseModalities: [Modality.AUDIO],
-        }
+      const generation = await postJson<{
+        audioBase64: string;
+        mimeType: string;
+        lyrics: string;
+      }>('/api/generate-song', {
+        prompt: finalPrompt,
+        genreDescription,
+        voice: selectedVoice,
       });
 
-      let audioBase64 = "";
-      let lyrics = "";
-      let mimeType = "audio/mp3";
-
-      const parts = result.candidates?.[0]?.content?.parts;
-      if (parts) {
-        for (const part of parts) {
-          if (part.inlineData?.data) {
-            audioBase64 = part.inlineData.data;
-            if (part.inlineData.mimeType) {
-              mimeType = part.inlineData.mimeType;
-            }
-          }
-          if (part.text) {
-            lyrics = part.text;
-          }
-        }
-      }
-
-      if (!audioBase64) {
-        throw new Error("The AI model did not return any audio data. Please ensure your API key has Lyria permissions.");
-      }
+      const { audioBase64, lyrics, mimeType } = generation;
       
       // Collect audio into blob - Force audio/mpeg as fallback if mimeType is unknown
       const binary = atob(audioBase64);
@@ -354,6 +348,17 @@ export default function App() {
       const blob = new Blob([bytes], { type: safeMimeType });
       const newSongId = Math.random().toString(36).substr(2, 9);
       const uploadedAudio = await uploadSongAudio(user.uid, newSongId, blob);
+      const usage = await consumeGenerationCredit(user.uid);
+      if (!usage.allowed) {
+        if (usage.mode === 'banned') {
+          throw new Error("Your account is banned. Please contact admin.");
+        }
+        if (usage.mode === 'points') {
+          throw new Error(`You need ${SONG_POINT_COST} points to save one generated song. Current points: ${usage.remaining}.`);
+        }
+        setShowUpgrade(true);
+        throw new Error("Weekly limit reached before saving. Please try again after refill.");
+      }
 
       const newSong = {
         id: newSongId,

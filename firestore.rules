@@ -87,6 +87,7 @@ service cloud.firestore {
 
     function isChatAllowed() {
       return !('chatBannedUntil' in currentUserData())
+        || currentUserData().chatBannedUntil == null
         || currentUserData().chatBannedUntil <= request.time;
     }
 

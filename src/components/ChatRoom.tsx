@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Bot, Loader2, MessageSquare, Send, ShieldAlert, Users, X } from 'lucide-react';
-import { GoogleGenAI } from '@google/genai';
 import { collection, query, orderBy, onSnapshot, limit, serverTimestamp, setDoc, doc, deleteDoc, updateDoc, Timestamp, increment } from 'firebase/firestore';
 import { CHAT_BAN_DURATION_MS, CHAT_BAN_THRESHOLD, db } from '../firebase';
 
@@ -16,6 +15,8 @@ interface Message {
 
 interface ActiveUser {
   uid: string;
+  displayName: string;
+  photoURL?: string | null;
   lastSeen: number;
 }
 
@@ -33,6 +34,7 @@ interface ChatRoomProps {
     displayName: string | null;
     photoURL: string | null;
     email?: string | null;
+    getIdToken?: () => Promise<string>;
   } | null;
   onClose: () => void;
 }
@@ -42,7 +44,22 @@ const FAKE_ONLINE_MIN = 11;
 const FAKE_ONLINE_MAX = 38;
 const ONLINE_FLUCTUATION_MS = 4500;
 const ONLINE_STEP_OPTIONS = [-3, -2, -1, 1, 2, 3];
+const VISIBLE_ONLINE_NAMES = 4;
 const MAX_MESSAGE_LENGTH = 500;
+const FAKE_ONLINE_NAMES = [
+  'Aung Beats',
+  'Moe Studio',
+  'Nora Mix',
+  'Jay Producer',
+  'Htet Wave',
+  'Zin Melody',
+  'Ko Min',
+  'May Vocal',
+  'Leo Sound',
+  'Yuki Keys',
+  'Arkar Flow',
+  'Sai Pulse',
+];
 const BLOCKED_TERMS = [
   'fuck',
   'shit',
@@ -115,6 +132,24 @@ const shouldAskAi = (value: string) => {
 
 const containsMyanmar = (value: string) => /[\u1000-\u109f]/.test(value);
 
+const postJson = async <T,>(url: string, body: Record<string, unknown>, token: string): Promise<T> => {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || 'Request failed. Please try again.');
+  }
+
+  return payload as T;
+};
+
 const getInitialFakeOnline = () => (
   FAKE_ONLINE_MIN + Math.floor(Math.random() * (FAKE_ONLINE_MAX - FAKE_ONLINE_MIN + 1))
 );
@@ -139,6 +174,12 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
   const [fakeOnline, setFakeOnline] = useState(getInitialFakeOnline);
   const scrollRef = useRef<HTMLDivElement>(null);
   const onlineCount = fakeOnline + activeUsers.length;
+  const onlineNames = [
+    ...activeUsers.map(user => user.displayName).filter(Boolean),
+    ...FAKE_ONLINE_NAMES,
+  ].filter((name, index, names) => names.indexOf(name) === index);
+  const visibleOnlineNames = onlineNames.slice(0, VISIBLE_ONLINE_NAMES);
+  const hiddenOnlineCount = Math.max(onlineCount - visibleOnlineNames.length, 0);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -185,6 +226,8 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
         if (lastSeenTime && now - lastSeenTime < ACTIVE_WINDOW_MS) {
           users.push({
             uid: data.userId || doc.id,
+            displayName: data.displayName || data.email?.split('@')[0] || 'Online user',
+            photoURL: data.photoURL || null,
             lastSeen: lastSeenTime,
           });
         }
@@ -289,23 +332,26 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
   };
 
   const sendAiReply = async (sourceText: string) => {
-    if (!currentUser || !process.env.GEMINI_API_KEY) return;
+    if (!currentUser) return;
 
     setIsAiReplying(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const token = await currentUser.getIdToken?.();
+      if (!token) {
+        throw new Error('Login session expired. Please sign in again.');
+      }
+
       const userName = banState.knownName || getDisplayName(currentUser);
       const languageHint = containsMyanmar(sourceText) ? 'Myanmar/Burmese' : 'English';
       const recentContext = messages.slice(-6).map(message => `${message.user}: ${message.text}`).join('\n');
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        config: {
-          systemInstruction: `You are Taurus AI inside a live music creation chat. Remember and address the user by name: ${userName}. Reply in ${languageHint}; if the user mixes languages, follow the user's dominant language. Reply concisely unless the user asks for lyrics. If the user asks to write a song or lyrics, provide usable song lyrics with verse and chorus sections. If the user asks about subscribe, payment, premium, pro, prime, or upgrade, explain that they can request a plan and wait for admin approval. Do not use abusive language.`,
-        },
-        contents: `Recent chat:\n${recentContext || 'No recent messages.'}\n\nCurrent message from ${userName}:\n${sourceText.replace(/@ai|@taurus/gi, '').trim()}`,
-      });
+      const response = await postJson<{ reply: string }>('/api/ai-chat', {
+        sourceText,
+        userName,
+        languageHint,
+        recentContext,
+      }, token);
 
-      const reply = response.text?.trim();
+      const reply = response.reply?.trim();
       if (!reply) return;
 
       await setDoc(doc(collection(db, 'chatMessages')), {
@@ -377,22 +423,40 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
       className="fixed bottom-6 right-6 w-80 sm:w-96 h-[500px] bg-zinc-900 border border-zinc-800 rounded-[2rem] shadow-2xl z-[80] flex flex-col overflow-hidden"
     >
       <div className="p-5 border-b border-zinc-800 bg-zinc-900/50 backdrop-blur-md">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-violet-600/10 flex items-center justify-center text-violet-400">
-              <MessageSquare size={20} />
-            </div>
-            <div>
-              <h3 className="font-bold text-sm">Producer Chat</h3>
-              <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 uppercase tracking-widest font-black">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                {onlineCount} Online
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-violet-600/10 flex items-center justify-center text-violet-400">
+                <MessageSquare size={20} />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm">Producer Chat</h3>
+                <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 uppercase tracking-widest font-black">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  {onlineCount} Online
+                </div>
               </div>
             </div>
+            <button onClick={onClose} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-500 transition-colors">
+              <X size={20} />
+            </button>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-500 transition-colors">
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-1.5 overflow-hidden">
+            {visibleOnlineNames.map(name => (
+              <span
+                key={name}
+                className="max-w-[74px] truncate rounded-full border border-zinc-800 bg-zinc-950 px-2 py-1 text-[9px] font-bold text-zinc-400"
+                title={`${name} online`}
+              >
+                {name}
+              </span>
+            ))}
+            {hiddenOnlineCount > 0 && (
+              <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-1 text-[9px] font-black text-emerald-400">
+                +{hiddenOnlineCount}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
