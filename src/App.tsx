@@ -104,7 +104,24 @@ const TIERS = (['personal', 'pro', 'prime', 'premium'] as UserTier[]).map((id) =
   };
 });
 
-const GENRES = ['Neon Pulse', 'Golden Vibes', 'Pop Essence', 'Urban Flow', 'Rock Legacy'];
+const GENRE_OPTIONS = [
+  { id: 'Neon Pulse', description: 'Modern high-energy Electronic/EDM with synth-wave elements' },
+  { id: 'Golden Vibes', description: 'Acoustic, warm, and uplifting soulful atmosphere' },
+  { id: 'Pop Essence', description: 'Polished modern top-40 Pop with commercial appeal' },
+  { id: 'Urban Flow', description: 'Cloud Rap/Hip-hop with modern trap influence and deep bass' },
+  { id: 'Rock Legacy', description: 'High-fidelity Alternative/Arena Rock with powerful guitars' },
+];
+
+const INSTRUMENT_OPTIONS = [
+  { id: 'Guitar', description: 'expressive rhythm and lead guitar layers' },
+  { id: 'Piano', description: 'emotional piano chords and melodic piano fills' },
+  { id: 'Bass Boost', description: 'deep boosted bass with strong low-end impact' },
+  { id: 'Violin', description: 'cinematic violin and string phrases' },
+  { id: 'Drums', description: 'tight live drums with a clear groove' },
+  { id: '808 Bass', description: 'modern 808 sub bass and trap bounce' },
+  { id: 'Synth', description: 'wide synth pads and bright hooks' },
+  { id: 'Myanmar Percussion', description: 'tasteful Myanmar percussion accents' },
+];
 
 const VOICES = {
   male: ['Male Edge', 'Male Deep', 'Male High', 'Male Soul', 'Male Smooth'],
@@ -140,10 +157,12 @@ export default function App() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [idea, setIdea] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('Pop Essence');
+  const [selectedInstruments, setSelectedInstruments] = useState<string[]>(['Piano', 'Bass Boost']);
   const [selectedVoice, setSelectedVoice] = useState('Duet/Pair');
   const [optimizedPrompt, setOptimizedPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [isSoundChooserOpen, setIsSoundChooserOpen] = useState(false);
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
   const [history, setHistory] = useState<Song[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -173,6 +192,15 @@ export default function App() {
   const weeklyRemaining = Math.max(profileWeeklyLimit - weeklyUsed, 0);
   const monthlyRemaining = Math.max(profileMonthlyLimit - monthlyUsed, 0);
   const selectedTierPlan = TIERS.find(tier => tier.id === selectedTier) || TIERS[0];
+  const selectedInstrumentSummary = selectedInstruments.length > 0 ? selectedInstruments.join(', ') : 'Auto arrangement';
+
+  const toggleInstrument = (instrumentId: string) => {
+    setSelectedInstruments(prev => (
+      prev.includes(instrumentId)
+        ? prev.filter(item => item !== instrumentId)
+        : [...prev, instrumentId]
+    ));
+  };
 
   useEffect(() => {
     if (!profile || profile.role !== 'admin' || !showAdmin) return;
@@ -408,15 +436,13 @@ export default function App() {
         throw new Error(`Song limit reached. Weekly left: ${access.weeklyRemaining || 0}, monthly left: ${access.monthlyRemaining || 0}.`);
       }
 
-      const genreMapping: Record<string, string> = {
-        'Neon Pulse': 'Modern high-energy Electronic/EDM with synth-wave elements',
-        'Golden Vibes': 'Acoustic, warm, and uplifting soulful atmosphere',
-        'Pop Essence': 'Polished modern top-40 Pop with commercial appeal',
-        'Urban Flow': 'Cloud Rap/Hip-hop with modern trap influence and deep bass',
-        'Rock Legacy': 'High-fidelity Alternative/Arena Rock with powerful guitars'
-      };
-
-      const genreDescription = genreMapping[selectedGenre] || selectedGenre;
+      const genreDescription = GENRE_OPTIONS.find(genre => genre.id === selectedGenre)?.description || selectedGenre;
+      const arrangementDescription = selectedInstruments.length > 0
+        ? INSTRUMENT_OPTIONS
+            .filter(instrument => selectedInstruments.includes(instrument.id))
+            .map(instrument => `${instrument.id}: ${instrument.description}`)
+            .join('; ')
+        : 'Let Taurus AI choose the best complete arrangement.';
       const generation = await postJson<{
         audioBase64: string;
         mimeType: string;
@@ -424,6 +450,7 @@ export default function App() {
       }>('/api/generate-song', {
         prompt: finalPrompt,
         genreDescription,
+        arrangementDescription,
         voice: selectedVoice,
       });
 
@@ -1157,16 +1184,62 @@ export default function App() {
               Describe your mood, Taurus synthesizes the master.
             </p>
 
-            <div className="flex flex-wrap justify-center gap-1 lg:gap-2 mt-1.5 lg:mt-8">
-              {GENRES.map(g => (
-                <button 
-                  key={g} 
-                  onClick={() => setSelectedGenre(g)}
-                  className={`px-3 lg:px-6 py-1.5 lg:py-2 rounded-full text-[8.5px] lg:text-[10px] font-black uppercase tracking-widest transition-all ${selectedGenre === g ? 'bg-violet-600 text-white shadow-[0_0_15px_rgba(139,92,246,0.4)]' : 'bg-zinc-900 text-zinc-500 hover:text-white border border-zinc-800'}`}
-                >
-                  {g}
-                </button>
-              ))}
+            <div className="relative mt-1.5 lg:mt-8 flex justify-center">
+              <button
+                type="button"
+                onClick={() => setIsSoundChooserOpen(prev => !prev)}
+                className="max-w-full rounded-full border border-violet-500/30 bg-violet-600 px-4 py-2 text-[9px] lg:text-[10px] font-black uppercase tracking-widest text-white shadow-[0_0_18px_rgba(139,92,246,0.35)] transition-all hover:bg-violet-500"
+              >
+                Choose Sound: {selectedGenre} · {selectedInstrumentSummary}
+              </button>
+              <AnimatePresence>
+                {isSoundChooserOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.98 }}
+                    className="absolute top-11 z-30 w-[min(92vw,680px)] rounded-3xl border border-zinc-800 bg-zinc-950/95 p-4 text-left shadow-2xl backdrop-blur-xl"
+                  >
+                    <div className="mb-4">
+                      <p className="mb-2 text-[9px] font-black uppercase tracking-widest text-zinc-500">Song Style</p>
+                      <div className="flex flex-wrap gap-2">
+                        {GENRE_OPTIONS.map(genre => (
+                          <button
+                            key={genre.id}
+                            type="button"
+                            onClick={() => setSelectedGenre(genre.id)}
+                            className={`rounded-full px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${selectedGenre === genre.id ? 'bg-violet-600 text-white' : 'border border-zinc-800 bg-zinc-900 text-zinc-500 hover:text-white'}`}
+                          >
+                            {genre.id}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="mb-2 text-[9px] font-black uppercase tracking-widest text-zinc-500">Instruments / Mix</p>
+                      <div className="flex flex-wrap gap-2">
+                        {INSTRUMENT_OPTIONS.map(instrument => (
+                          <button
+                            key={instrument.id}
+                            type="button"
+                            onClick={() => toggleInstrument(instrument.id)}
+                            className={`rounded-full px-3 py-2 text-[10px] font-black transition-all ${selectedInstruments.includes(instrument.id) ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'border border-zinc-800 bg-zinc-900 text-zinc-500 hover:text-white'}`}
+                          >
+                            {instrument.id}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsSoundChooserOpen(false)}
+                      className="mt-4 w-full rounded-2xl bg-white py-3 text-xs font-black uppercase tracking-widest text-black hover:bg-zinc-200 transition-colors"
+                    >
+                      Done
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
 

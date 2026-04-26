@@ -26,10 +26,12 @@ const requireFirebaseAuth = async (req: any) => {
 const generateSongAudio = async ({
   prompt,
   genreDescription,
+  arrangementDescription,
   voice,
 }: {
   prompt: string;
   genreDescription: string;
+  arrangementDescription: string;
   voice: string;
 }) => {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
@@ -40,10 +42,12 @@ const generateSongAudio = async ({
   const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey });
   const fullPrompt = [
-    `Create a polished 90-second ${genreDescription} song as an MP3.`,
+    `Create a complete, fully arranged 90-second ${genreDescription} song as an MP3.`,
     `Theme: ${prompt}.`,
     `Vocal direction: ${voice}.`,
-    'Include a clear intro, verse, chorus, and outro. Return the generated lyrics or structure text and the MP3 audio.',
+    `Arrangement must follow these selected sounds: ${arrangementDescription}.`,
+    'Write and perform a full singable song, not a short sample. Include intro, verse 1, pre-chorus, chorus, verse 2, bridge, final chorus, and outro where musically possible.',
+    'Lyrics must be complete, natural to sing, and match the user language when clear. Return the full lyrics/structure text and the MP3 audio.',
   ].join(' ');
 
   const result = await ai.models.generateContent({
@@ -85,7 +89,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     await requireFirebaseAuth(req);
-    const { prompt, genreDescription, voice } = req.body || {};
+    const { prompt, genreDescription, arrangementDescription, voice } = req.body || {};
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ error: 'Prompt is required.' });
     }
@@ -93,6 +97,7 @@ export default async function handler(req: any, res: any) {
     const result = await generateSongAudio({
       prompt: prompt.slice(0, 1200),
       genreDescription: typeof genreDescription === 'string' ? genreDescription.slice(0, 240) : 'modern pop',
+      arrangementDescription: typeof arrangementDescription === 'string' ? arrangementDescription.slice(0, 500) : 'balanced full-band arrangement',
       voice: typeof voice === 'string' ? voice.slice(0, 120) : 'Duet/Pair',
     });
 

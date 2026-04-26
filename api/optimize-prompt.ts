@@ -34,7 +34,7 @@ const optimizeMusicPrompt = async (idea: string) => {
   const response = await ai.models.generateContent({
     model: TEXT_MODEL,
     config: {
-      systemInstruction: 'You are a professional music producer. Expand music ideas into detailed prompts. Keep it under 200 chars. Return ONLY the enhanced prompt text.',
+      systemInstruction: 'You are a professional music producer. Expand music ideas into complete song generation prompts. Include full song structure, arrangement, vocal mood, and mix direction. Keep it under 500 chars. Return ONLY the enhanced prompt text.',
     },
     contents: idea,
   });

@@ -56,7 +56,7 @@ const FAKE_ONLINE_MAX = 38;
 const ONLINE_FLUCTUATION_MS = 4500;
 const ONLINE_STEP_OPTIONS = [-3, -2, -1, 1, 2, 3];
 const VISIBLE_ONLINE_NAMES = 4;
-const MAX_MESSAGE_LENGTH = 500;
+const MAX_MESSAGE_LENGTH = 4000;
 const FAKE_ONLINE_NAMES = [
   'Aung Beats',
   'Moe Studio',

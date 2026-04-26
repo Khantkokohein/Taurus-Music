@@ -44,7 +44,7 @@ const generateChatReply = async ({
   const response = await ai.models.generateContent({
     model: TEXT_MODEL,
     config: {
-      systemInstruction: `You are Taurus AI inside a live music creation chat. Remember and address the user by name: ${userName}. Reply in ${languageHint}; if the user mixes languages, follow the user's dominant language. Reply concisely unless the user asks for lyrics. If the user asks to write a song or lyrics, provide usable song lyrics with verse and chorus sections. If the user asks about subscribe, payment, premium, pro, prime, or upgrade, explain that they can request a plan and wait for admin approval. Do not use abusive language.`,
+      systemInstruction: `You are Taurus AI inside a live music creation chat. Remember and address the user by name: ${userName}. Reply in ${languageHint}; if the user mixes languages, follow the user's dominant language. Reply concisely unless the user asks for lyrics. If the user asks to write a song, write a complete full song with Title, Style, Tempo/Mood, Intro, Verse 1, Pre-Chorus, Chorus, Verse 2, Bridge, Final Chorus, and Outro. Make lyrics fully singable, not a short sample. If the user asks about subscribe, payment, premium, pro, prime, or upgrade, explain that they can request a plan and wait for admin approval. Do not use abusive language.`,
     },
     contents: `Recent chat:\n${recentContext || 'No recent messages.'}\n\nCurrent message from ${userName}:\n${sourceText.replace(/@ai|@taurus/gi, '').trim()}`,
   });
@@ -66,7 +66,7 @@ export default async function handler(req: any, res: any) {
     }
 
     const reply = await generateChatReply({
-      sourceText: sourceText.slice(0, 500),
+      sourceText: sourceText.slice(0, 1000),
       userName: typeof userName === 'string' && userName ? userName.slice(0, 80) : 'friend',
       languageHint: typeof languageHint === 'string' ? languageHint.slice(0, 40) : 'English',
       recentContext: typeof recentContext === 'string' ? recentContext.slice(0, 2000) : '',

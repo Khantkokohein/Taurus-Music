@@ -103,7 +103,7 @@ service cloud.firestore {
     function isValidChatText() {
       return incoming().text is string
         && incoming().text.size() > 0
-        && incoming().text.size() <= 500
+        && incoming().text.size() <= 4000
         && isCleanChatText();
     }
 
