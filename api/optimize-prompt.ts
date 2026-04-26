@@ -1,6 +1,3 @@
-import { optimizeMusicPrompt } from '../src/lib/gemini';
-import { requireFirebaseAuth } from '../src/lib/serverAuth';
-
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -8,6 +5,9 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    const { requireFirebaseAuth } = await import('../src/lib/serverAuth');
+    const { optimizeMusicPrompt } = await import('../src/lib/gemini');
+
     await requireFirebaseAuth(req);
     const { idea } = req.body || {};
     if (!idea || typeof idea !== 'string') {

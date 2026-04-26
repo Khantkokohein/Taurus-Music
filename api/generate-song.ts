@@ -1,6 +1,3 @@
-import { generateSongAudio } from '../src/lib/gemini';
-import { requireFirebaseAuth } from '../src/lib/serverAuth';
-
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -8,6 +5,9 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    const { requireFirebaseAuth } = await import('../src/lib/serverAuth');
+    const { generateSongAudio } = await import('../src/lib/gemini');
+
     await requireFirebaseAuth(req);
     const { prompt, genreDescription, voice } = req.body || {};
     if (!prompt || typeof prompt !== 'string') {

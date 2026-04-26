@@ -1,9 +1,9 @@
-import firebaseConfig from '../../firebase-applet-config.json';
-
 export interface VerifiedFirebaseUser {
   uid: string;
   email?: string;
 }
+
+const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || 'AIzaSyAg7tK7sGW6FYssUMCQzUizfgCPeJJ-4qo';
 
 export const requireFirebaseAuth = async (req: any): Promise<VerifiedFirebaseUser> => {
   const authorization = req.headers?.authorization || req.headers?.Authorization || '';
@@ -15,7 +15,7 @@ export const requireFirebaseAuth = async (req: any): Promise<VerifiedFirebaseUse
     throw new Error('Please login again to use Taurus AI.');
   }
 
-  const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseConfig.apiKey}`, {
+  const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_API_KEY}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken }),
