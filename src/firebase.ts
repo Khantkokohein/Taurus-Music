@@ -20,6 +20,11 @@ export interface UserProfile {
   weeklyLimit: number;
   songsUsedThisWeek: number;
   lastRefillDate: string; // ISO Date YYYY-MM-DD
+  chatBannedUntil?: Timestamp;
+  chatBanReason?: string;
+  chatBannedAt?: Timestamp;
+  chatLastViolation?: string;
+  chatBanCount?: number;
 }
 
 export interface Song {

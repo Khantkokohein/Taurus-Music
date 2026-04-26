@@ -39,29 +39,128 @@ service cloud.firestore {
       return resource.data;
     }
 
+    function currentUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function immutableUserFieldsValid() {
+      return incoming().uid == existing().uid
+        && incoming().role == existing().role
+        && incoming().email == existing().email
+        && incoming().credits == existing().credits
+        && incoming().tier == existing().tier;
+    }
+
+    function isOwnerUsageUpdate(userId) {
+      return isOwner(userId)
+        && immutableUserFieldsValid()
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'dailyGenerationCount',
+          'lastGenerationDate',
+          'pendingPayment',
+          'songsUsedThisWeek',
+          'lastRefillDate',
+          'weeklyLimit'
+        ]);
+    }
+
+    function isOwnerChatBanUpdate(userId) {
+      return isOwner(userId)
+        && immutableUserFieldsValid()
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'chatBannedUntil',
+          'chatBanReason',
+          'chatBannedAt',
+          'chatLastViolation',
+          'chatBanCount'
+        ])
+        && incoming().chatBannedUntil is timestamp
+        && incoming().chatBannedUntil > request.time;
+    }
+
+    function isChatAllowed() {
+      return !('chatBannedUntil' in currentUserData())
+        || currentUserData().chatBannedUntil <= request.time;
+    }
+
+    function isCleanChatText() {
+      return !(incoming().text.matches('(?i).*(fuck|shit|bitch|asshole|motherfucker|cunt).*')
+        || incoming().text.matches('.*(လီး|စောက်|မအေ|လိုး|ဖာ|ဖင်).*'));
+    }
+
+    function isValidChatText() {
+      return incoming().text is string
+        && incoming().text.size() > 0
+        && incoming().text.size() <= 500
+        && isCleanChatText();
+    }
+
+    function isUserChatMessage() {
+      return incoming().keys().hasOnly(['user', 'text', 'userId', 'timestamp'])
+        && incoming().userId == request.auth.uid
+        && incoming().user is string
+        && incoming().user.size() > 0
+        && incoming().user.size() <= 80
+        && incoming().timestamp == request.time
+        && isValidChatText();
+    }
+
+    function isAiChatMessage() {
+      return incoming().keys().hasOnly(['user', 'text', 'userId', 'timestamp', 'isAi', 'createdBy'])
+        && incoming().user == 'Taurus AI'
+        && incoming().userId == 'taurus-ai'
+        && incoming().isAi == true
+        && incoming().createdBy == request.auth.uid
+        && incoming().timestamp == request.time
+        && isValidChatText();
+    }
+
     // User Profile
     match /users/{userId} {
       allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
       allow list: if isSignedIn() && isAdmin();
       allow create: if isSignedIn() && request.auth.uid == userId 
+        && incoming().keys().hasOnly([
+          'uid',
+          'email',
+          'dailyGenerationCount',
+          'lastGenerationDate',
+          'credits',
+          'tier',
+          'role',
+          'weeklyLimit',
+          'songsUsedThisWeek',
+          'lastRefillDate'
+        ])
         && incoming().uid == request.auth.uid
         && incoming().email == request.auth.token.email
         && incoming().dailyGenerationCount == 0
         && incoming().credits == 0
         && incoming().tier == 'free'
         && (incoming().role == 'user' || (incoming().role == 'admin' && request.auth.token.email == 'koheinkhantko51@gmail.com'));
-      allow update: if isAdmin() || (
-        isOwner(userId)
-        && incoming().uid == existing().uid
-        && incoming().role == existing().role
-        && incoming().email == existing().email
-        && (
-          incoming().diff(existing()).affectedKeys().hasOnly(['dailyGenerationCount', 'lastGenerationDate', 'pendingPayment'])
-          || (incoming().credits == existing().credits && incoming().tier == existing().tier)
-        )
-      );
+      allow update: if isAdmin() || isOwnerUsageUpdate(userId) || isOwnerChatBanUpdate(userId);
     }
 
+    // Chat messages
+    match /chatMessages/{messageId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && isChatAllowed()
+        && (isUserChatMessage() || isAiChatMessage());
+      allow update, delete: if isAdmin();
+    }
+
+    // Presence
+    match /presence/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn()
+        && request.auth.uid == userId
+        && incoming().keys().hasOnly(['userId', 'displayName', 'email', 'photoURL', 'lastSeen'])
+        && incoming().userId == request.auth.uid
+        && incoming().lastSeen == request.time;
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+    
     // Songs subcollection
     match /users/{userId}/songs/{songId} {
       allow list: if isOwner(userId);
