@@ -41,6 +41,7 @@ import {
   approvePayment,
   manualUpdateUser,
   saveSong,
+  uploadSongAudio,
   UserProfile,
   Song as FirebaseSong
 } from './firebase';
@@ -52,6 +53,8 @@ interface Song {
   idea: string;
   prompt: string;
   audioUrl: string;
+  storagePath?: string;
+  mimeType?: string;
   lyrics: string;
   createdAt: number;
 }
@@ -143,6 +146,8 @@ export default function App() {
           idea: data.idea,
           prompt: data.prompt,
           audioUrl: data.audioUrl,
+          storagePath: data.storagePath,
+          mimeType: data.mimeType,
           lyrics: data.lyrics,
           createdAt: data.createdAt?.toMillis() || Date.now()
         } as Song;
@@ -169,6 +174,15 @@ export default function App() {
     };
   }, [audio]);
 
+  useEffect(() => {
+    audio.pause();
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    audio.removeAttribute('src');
+    audio.load();
+  }, [audio, currentSong?.id]);
+
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const time = parseFloat(e.target.value);
     audio.currentTime = time;
@@ -182,27 +196,33 @@ export default function App() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const togglePlay = () => {
+  const togglePlay = async () => {
     if (!currentSong) return;
     if (isPlaying) {
       audio.pause();
+      setIsPlaying(false);
+      return;
     } else {
       if (!currentSong.audioUrl) {
         setError("Audio source is not available. Please generate the song again.");
         return;
       }
       
-      // Ensure the audio source is set and played
-      if (audio.src !== currentSong.audioUrl) {
-        audio.src = currentSong.audioUrl;
-      }
-      
-      audio.play().catch(err => {
+      try {
+        if (audio.src !== currentSong.audioUrl) {
+          audio.src = currentSong.audioUrl;
+        }
+        await audio.play();
+        setIsPlaying(true);
+      } catch (err) {
         console.error("Playback error:", err);
-        setError("Audio playback failed. Please try again.");
-      });
+        setIsPlaying(false);
+        const legacyMessage = currentSong.audioUrl.startsWith('blob:')
+          ? "This older track was saved with a temporary browser audio link. Please generate it again to save it permanently."
+          : "Audio playback failed. Please try again.";
+        setError(legacyMessage);
+      }
     }
-    setIsPlaying(!isPlaying);
   };
 
   const handleOptimize = async () => {
@@ -299,14 +319,18 @@ export default function App() {
       for (let i = 0; i < binary.length; i++) {
         bytes[i] = binary.charCodeAt(i);
       }
-      const blob = new Blob([bytes], { type: mimeType && mimeType !== "application/octet-stream" ? mimeType : "audio/mpeg" });
-      const audioUrl = URL.createObjectURL(blob);
+      const safeMimeType = mimeType && mimeType !== "application/octet-stream" ? mimeType : "audio/mpeg";
+      const blob = new Blob([bytes], { type: safeMimeType });
+      const newSongId = Math.random().toString(36).substr(2, 9);
+      const uploadedAudio = await uploadSongAudio(user.uid, newSongId, blob);
 
       const newSong = {
-        id: Math.random().toString(36).substr(2, 9),
+        id: newSongId,
         idea,
         prompt: finalPrompt,
-        audioUrl,
+        audioUrl: uploadedAudio.audioUrl,
+        storagePath: uploadedAudio.storagePath,
+        mimeType: uploadedAudio.mimeType,
         lyrics: lyrics || "Lyrics not generated for this track.",
       };
       

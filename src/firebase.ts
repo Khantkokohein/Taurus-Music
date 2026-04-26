@@ -1,11 +1,13 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc, updateDoc, increment, collection, query, orderBy, onSnapshot, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 
 export interface UserProfile {
@@ -33,6 +35,8 @@ export interface Song {
   idea: string;
   prompt: string;
   audioUrl: string;
+  storagePath?: string;
+  mimeType?: string;
   lyrics: string;
   createdAt: any;
 }
@@ -156,7 +160,7 @@ export const checkAndUpdateUsage = async (uid: string): Promise<{ allowed: boole
 };
 
 export const saveSong = async (userId: string, song: Omit<Song, 'userId' | 'createdAt'>) => {
-  const songRef = doc(collection(db, 'users', userId, 'songs'));
+  const songRef = doc(db, 'users', userId, 'songs', song.id);
   const fullSong: Song = {
     ...song,
     userId,
@@ -169,4 +173,25 @@ export const saveSong = async (userId: string, song: Omit<Song, 'userId' | 'crea
 export const manualUpdateUser = async (userId: string, data: Partial<UserProfile>) => {
   const userRef = doc(db, 'users', userId);
   await updateDoc(userRef, data);
+};
+
+export const uploadSongAudio = async (userId: string, songId: string, blob: Blob) => {
+  const contentType = blob.type && blob.type !== 'application/octet-stream' ? blob.type : 'audio/mpeg';
+  const extension = contentType.includes('wav') ? 'wav' : contentType.includes('ogg') ? 'ogg' : 'mp3';
+  const storagePath = `users/${userId}/songs/${songId}/audio.${extension}`;
+  const audioRef = ref(storage, storagePath);
+
+  await uploadBytes(audioRef, blob, {
+    contentType,
+    customMetadata: {
+      userId,
+      songId,
+    },
+  });
+
+  return {
+    audioUrl: await getDownloadURL(audioRef),
+    storagePath,
+    mimeType: contentType,
+  };
 };
