@@ -51,7 +51,10 @@ import {
   unbanUser,
   getBanUntilMillis,
   PLAN_CONFIGS,
+  getEffectivePlanConfig,
   getPlanConfig,
+  getTimestampMillis,
+  isSubscriptionExpired,
   UserProfile,
   UserTier
 } from './firebase';
@@ -107,6 +110,7 @@ const TIERS = (['personal', 'pro', 'prime', 'premium'] as UserTier[]).map((id) =
     ...style,
     priceLabel: formatUsd(plan.price),
     mmkPriceLabel: formatMmk(plan.price),
+    durationLabel: plan.durationLabel,
   };
 });
 
@@ -192,9 +196,11 @@ export default function App() {
   const [newCredits, setNewCredits] = useState<number>(0);
   const accountBanUntil = getBanUntilMillis(profile);
   const isAccountBanned = accountBanUntil > Date.now();
-  const activePlan = getPlanConfig(profile?.tier);
-  const profileWeeklyLimit = profile?.weeklyLimit || activePlan.weeklyLimit;
-  const profileMonthlyLimit = profile?.monthlyLimit || activePlan.monthlyLimit;
+  const subscriptionExpiresAt = getTimestampMillis(profile?.subscriptionExpiresAt);
+  const subscriptionExpired = isSubscriptionExpired(profile);
+  const activePlan = getEffectivePlanConfig(profile);
+  const profileWeeklyLimit = subscriptionExpired ? activePlan.weeklyLimit : (profile?.weeklyLimit || activePlan.weeklyLimit);
+  const profileMonthlyLimit = subscriptionExpired ? activePlan.monthlyLimit : (profile?.monthlyLimit || activePlan.monthlyLimit);
   const weeklyUsed = profile?.songsUsedThisWeek || 0;
   const monthlyUsed = profile?.songsUsedThisMonth || 0;
   const weeklyRemaining = Math.max(profileWeeklyLimit - weeklyUsed, 0);
@@ -499,7 +505,7 @@ export default function App() {
       // Usage update locally
       setProfile(prev => {
         if (!prev) return null;
-        const plan = getPlanConfig(prev.tier);
+        const plan = getEffectivePlanConfig(prev);
         const weeklyLimit = prev.weeklyLimit || plan.weeklyLimit;
         const monthlyLimit = prev.monthlyLimit || plan.monthlyLimit;
         return {
@@ -725,7 +731,8 @@ export default function App() {
                     </div>
                     <h3 className={`text-lg md:text-xl font-bold mb-1 ${tier.textClass} transition-colors`}>{tier.name}</h3>
                     <div className="text-3xl md:text-4xl font-display font-black">{tier.priceLabel}</div>
-                    <div className="mb-4 text-xs font-bold text-amber-300">{tier.mmkPriceLabel}</div>
+                    <div className="text-xs font-bold text-amber-300">{tier.mmkPriceLabel}</div>
+                    <div className="mb-4 text-[10px] font-black uppercase tracking-widest text-zinc-500">{tier.durationLabel} access</div>
                     <div className="space-y-2.5 mb-5 w-full text-xs text-zinc-400">
                       <div className="flex items-center gap-2">
                         <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
@@ -772,7 +779,7 @@ export default function App() {
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 max-w-lg w-full">
               <h3 className="text-2xl font-bold mb-2">Subscribe to {selectedTierPlan.name}</h3>
               <p className="text-zinc-400 text-sm mb-4">
-                {selectedTierPlan.priceLabel} ({selectedTierPlan.mmkPriceLabel}) for {selectedTierPlan.weeklyLimit} songs/week and {selectedTierPlan.monthlyLimit} songs/month.
+                {selectedTierPlan.priceLabel} ({selectedTierPlan.mmkPriceLabel}) for {selectedTierPlan.durationLabel}. Includes {selectedTierPlan.weeklyLimit} songs/week and {selectedTierPlan.monthlyLimit} songs/month.
               </p>
               
               <div className="space-y-4 text-sm max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
@@ -956,7 +963,7 @@ export default function App() {
                               <p className="font-bold text-sm text-white">{u.email}</p>
                               <p className="text-[10px] text-zinc-500">UID: {u.uid}</p>
                               <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-violet-300">
-                                Requested: {getPlanConfig(u.requestedTier || 'personal').name} · {formatMmk(getPlanConfig(u.requestedTier || 'personal').price)}
+                                Requested: {getPlanConfig(u.requestedTier || 'personal').name} · {formatMmk(getPlanConfig(u.requestedTier || 'personal').price)} · {getPlanConfig(u.requestedTier || 'personal').durationLabel}
                               </p>
                               {u.paymentProofUrl && (
                                 <a
@@ -1142,8 +1149,8 @@ export default function App() {
                   <img src={user.photoURL || ''} className="w-8 h-8 rounded-full border border-zinc-700" alt="Avatar" />
                   <div className="overflow-hidden">
                     <p className="text-xs font-bold text-white truncate w-24">{user.displayName}</p>
-                    <p className={`text-[10px] font-black uppercase tracking-tighter ${profile?.tier !== 'free' ? 'text-violet-400' : 'text-zinc-500'}`}>
-                      {profile?.tier || 'free'} plan
+                    <p className={`text-[10px] font-black uppercase tracking-tighter ${profile?.tier !== 'free' && !subscriptionExpired ? 'text-violet-400' : 'text-zinc-500'}`}>
+                      {subscriptionExpired ? 'expired' : (profile?.tier || 'free')} plan
                     </p>
                   </div>
                 </div>
@@ -1183,6 +1190,11 @@ export default function App() {
                   />
                 </div>
                 <p className="text-[8px] text-zinc-600 mt-2 uppercase font-bold tracking-tighter">Daily reward: {profile?.points || 0} pts (+10/day)</p>
+                {profile?.tier !== 'free' && subscriptionExpiresAt > 0 && (
+                  <p className={`text-[8px] mt-2 uppercase font-bold tracking-tighter ${subscriptionExpired ? 'text-red-300' : 'text-violet-300'}`}>
+                    {subscriptionExpired ? 'Expired' : `Expires ${new Date(subscriptionExpiresAt).toLocaleDateString()}`}
+                  </p>
+                )}
               </div>
 
               {isAccountBanned && (

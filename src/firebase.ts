@@ -22,6 +22,8 @@ export type PlanConfig = {
   id: UserTier;
   name: string;
   price: number;
+  durationDays: number;
+  durationLabel: string;
   weeklyLimit: number;
   monthlyLimit: number;
   weeklyApiCost: number;
@@ -29,10 +31,20 @@ export type PlanConfig = {
   monthlyGrossMargin: number;
 };
 
-const createPlan = (id: UserTier, name: string, price: number, weeklyLimit: number, monthlyLimit: number): PlanConfig => ({
+const createPlan = (
+  id: UserTier,
+  name: string,
+  price: number,
+  weeklyLimit: number,
+  monthlyLimit: number,
+  durationDays = 0,
+  durationLabel = 'Free'
+): PlanConfig => ({
   id,
   name,
   price,
+  durationDays,
+  durationLabel,
   weeklyLimit,
   monthlyLimit,
   weeklyApiCost: weeklyLimit * LYRIA_SONG_API_COST_USD,
@@ -40,21 +52,34 @@ const createPlan = (id: UserTier, name: string, price: number, weeklyLimit: numb
   monthlyGrossMargin: price - (monthlyLimit * LYRIA_SONG_API_COST_USD),
 });
 
-const createPaidPlan = (id: UserTier, name: string, price: number): PlanConfig => {
+const createPaidPlan = (id: UserTier, name: string, price: number, durationDays: number, durationLabel: string): PlanConfig => {
   const monthlyLimit = Math.floor((price * 0.8) / LYRIA_SONG_API_COST_USD);
-  return createPlan(id, name, price, Math.ceil(monthlyLimit / 4), monthlyLimit);
+  return createPlan(id, name, price, Math.ceil(monthlyLimit / 4), monthlyLimit, durationDays, durationLabel);
 };
 
 export const PLAN_CONFIGS: Record<UserTier, PlanConfig> = {
   free: createPlan('free', 'Free', 0, 2, 8),
-  personal: createPaidPlan('personal', 'Personal', 5),
-  pro: createPaidPlan('pro', 'Pro', 15),
-  prime: createPaidPlan('prime', 'Prime', 40),
-  premium: createPaidPlan('premium', 'Premium', 200),
+  personal: createPaidPlan('personal', 'Personal', 5, 30, '1 month'),
+  pro: createPaidPlan('pro', 'Pro', 15, 30, '1 month'),
+  prime: createPaidPlan('prime', 'Prime', 40, 90, '3 months'),
+  premium: createPaidPlan('premium', 'Premium', 200, 365, '1 year'),
 };
 
 export const getPlanConfig = (tier?: string | null) => (
   PLAN_CONFIGS[(tier as UserTier) || 'free'] || PLAN_CONFIGS.free
+);
+
+export const getTimestampMillis = (timestamp?: Pick<Timestamp, 'toMillis'> | null) => (
+  timestamp?.toMillis ? timestamp.toMillis() : 0
+);
+
+export const isSubscriptionExpired = (profile?: Pick<UserProfile, 'tier' | 'subscriptionExpiresAt'> | null) => {
+  const expiresAt = getTimestampMillis(profile?.subscriptionExpiresAt);
+  return !!profile && profile.tier !== 'free' && expiresAt > 0 && expiresAt <= Date.now();
+};
+
+export const getEffectivePlanConfig = (profile?: Pick<UserProfile, 'tier' | 'subscriptionExpiresAt'> | null) => (
+  getPlanConfig(isSubscriptionExpired(profile) ? 'free' : profile?.tier)
 );
 
 export interface UserProfile {
@@ -70,7 +95,7 @@ export interface UserProfile {
   tier: UserTier;
   requestedTier?: UserTier | null;
   pendingPayment?: boolean;
-  paymentStatus?: 'pending' | 'approved' | 'rejected' | null;
+  paymentStatus?: 'pending' | 'approved' | 'rejected' | 'expired' | null;
   paymentProofUrl?: string;
   paymentProofPath?: string;
   paymentProofName?: string;
@@ -78,6 +103,11 @@ export interface UserProfile {
   paymentApprovedAt?: Timestamp;
   paymentRejectedAt?: Timestamp;
   paymentRejectReason?: string;
+  subscriptionStartedAt?: Timestamp | null;
+  subscriptionExpiresAt?: Timestamp | null;
+  subscriptionDurationDays?: number;
+  subscriptionDurationLabel?: string;
+  subscriptionPlanName?: string;
   role: 'user' | 'admin';
   weeklyLimit: number;
   songsUsedThisWeek: number;
@@ -170,7 +200,7 @@ export const claimDailyPointsIfNeeded = async (uid: string, displayName = '') =>
 
     const data = userSnap.data() as UserProfile;
     const updates: Partial<UserProfile> = {};
-    const plan = getPlanConfig(data.tier);
+    const plan = getEffectivePlanConfig(data);
     let dailyRewardClaimed = false;
 
     if (!data.displayName && displayName) {
@@ -219,6 +249,8 @@ export const approvePayment = async (userId: string, tierId: string) => {
 
   const userRef = doc(db, 'users', userId);
   const today = getTodayKey();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + tierConfig.durationDays * 24 * 60 * 60 * 1000);
   
   await updateDoc(userRef, {
     tier: tierConfig.id,
@@ -233,6 +265,11 @@ export const approvePayment = async (userId: string, tierId: string) => {
     paymentApprovedAt: serverTimestamp(),
     paymentRejectedAt: null,
     paymentRejectReason: '',
+    subscriptionStartedAt: serverTimestamp(),
+    subscriptionExpiresAt: Timestamp.fromDate(expiresAt),
+    subscriptionDurationDays: tierConfig.durationDays,
+    subscriptionDurationLabel: tierConfig.durationLabel,
+    subscriptionPlanName: tierConfig.name,
     requestedTier: null
   });
 };
@@ -285,7 +322,7 @@ const getDaysSince = (dateString?: string) => {
 };
 
 const getQuotaState = (data: UserProfile) => {
-  const plan = getPlanConfig(data.tier);
+  const plan = getEffectivePlanConfig(data);
   const resetWeekly = getDaysSince(data.lastRefillDate) >= 7;
   const resetMonthly = data.lastMonthlyRefillDate !== getMonthKey();
   const weeklyLimit = plan.weeklyLimit;
