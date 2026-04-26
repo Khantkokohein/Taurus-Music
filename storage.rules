@@ -15,9 +15,21 @@ service firebase.storage {
         && request.resource.contentType.matches('audio/.*');
     }
 
+    function isPaymentProofUpload() {
+      return request.resource != null
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
     match /users/{userId}/songs/{songId}/{fileName} {
       allow read: if isOwner(userId);
       allow create, update: if isOwner(userId) && isAudioUpload();
+      allow delete: if isOwner(userId);
+    }
+
+    match /users/{userId}/payment-proofs/{fileName} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isPaymentProofUpload();
       allow delete: if isOwner(userId);
     }
   }

@@ -27,7 +27,8 @@ import {
   Users,
   MessageSquare,
   Smartphone,
-  Send
+  Send,
+  Upload
 } from 'lucide-react';
 import ChatRoom from './components/ChatRoom';
 import { 
@@ -41,10 +42,12 @@ import {
   consumeGenerationCredit,
   requestManualPayment,
   approvePayment,
+  rejectPayment,
   manualUpdateUser,
   claimDailyPointsIfNeeded,
   saveSong,
   uploadSongAudio,
+  uploadPaymentProof,
   unbanUser,
   getBanUntilMillis,
   PLAN_CONFIGS,
@@ -67,6 +70,8 @@ interface Song {
 }
 
 const formatUsd = (value: number) => `$${value % 1 === 0 ? value.toFixed(0) : value.toFixed(2)}`;
+const MMK_PER_USD = 4000;
+const formatMmk = (usd: number) => `${(usd * MMK_PER_USD).toLocaleString()} MMK`;
 
 const TIERS = (['personal', 'pro', 'prime', 'premium'] as UserTier[]).map((id) => {
   const plan = PLAN_CONFIGS[id];
@@ -101,6 +106,7 @@ const TIERS = (['personal', 'pro', 'prime', 'premium'] as UserTier[]).map((id) =
     ...plan,
     ...style,
     priceLabel: formatUsd(plan.price),
+    mmkPriceLabel: formatMmk(plan.price),
   };
 });
 
@@ -177,6 +183,8 @@ export default function App() {
   const [showChat, setShowChat] = useState(false);
   const [showDailyReward, setShowDailyReward] = useState(false);
   const [selectedTier, setSelectedTier] = useState<UserTier>('personal');
+  const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [isPaymentSubmitting, setIsPaymentSubmitting] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
   const [searchEmail, setSearchEmail] = useState('');
@@ -524,15 +532,42 @@ export default function App() {
 
   const handleManualPayment = async () => {
     if(!user) return;
-    await requestManualPayment(user.uid, selectedTier);
-    setShowPayment(false);
-    setProfile(prev => prev ? { ...prev, pendingPayment: true, requestedTier: selectedTier } : null);
-    alert(`Payment request sent for ${selectedTierPlan.name}. Please wait for manual approval.`);
+    if (!paymentProofFile) {
+      setError("Please upload the payment screenshot first.");
+      return;
+    }
+
+    try {
+      setIsPaymentSubmitting(true);
+      const proof = await uploadPaymentProof(user.uid, paymentProofFile);
+      await requestManualPayment(user.uid, selectedTier, proof);
+      setShowPayment(false);
+      setPaymentProofFile(null);
+      setProfile(prev => prev ? {
+        ...prev,
+        pendingPayment: true,
+        requestedTier: selectedTier,
+        paymentStatus: 'pending',
+        paymentProofUrl: proof.url,
+        paymentProofPath: proof.path,
+        paymentProofName: proof.name,
+      } : null);
+      alert(`Payment request sent for ${selectedTierPlan.name}. Please wait for manual approval.`);
+    } catch (err: any) {
+      setError(err.message || "Failed to submit payment proof.");
+    } finally {
+      setIsPaymentSubmitting(false);
+    }
   };
 
   const handleApprove = async (userId: string, tier: string) => {
     await approvePayment(userId, tier);
     alert("User upgraded successfully!");
+  };
+
+  const handleRejectPayment = async (userId: string) => {
+    await rejectPayment(userId);
+    alert("Payment request rejected.");
   };
 
   const handleManualUpdate = async () => {
@@ -689,7 +724,8 @@ export default function App() {
                       {tier.label}
                     </div>
                     <h3 className={`text-lg md:text-xl font-bold mb-1 ${tier.textClass} transition-colors`}>{tier.name}</h3>
-                    <div className="text-3xl md:text-4xl font-display font-black mb-4">{tier.priceLabel}</div>
+                    <div className="text-3xl md:text-4xl font-display font-black">{tier.priceLabel}</div>
+                    <div className="mb-4 text-xs font-bold text-amber-300">{tier.mmkPriceLabel}</div>
                     <div className="space-y-2.5 mb-5 w-full text-xs text-zinc-400">
                       <div className="flex items-center gap-2">
                         <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
@@ -703,6 +739,7 @@ export default function App() {
                     <button 
                       onClick={() => {
                         setSelectedTier(tier.id);
+                        setPaymentProofFile(null);
                         setShowPayment(true);
                       }}
                       className="mt-auto w-full py-2.5 md:py-3 rounded-xl md:rounded-2xl bg-zinc-100 text-black text-sm md:text-base font-bold hover:bg-white transition-all"
@@ -735,7 +772,7 @@ export default function App() {
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 max-w-lg w-full">
               <h3 className="text-2xl font-bold mb-2">Subscribe to {selectedTierPlan.name}</h3>
               <p className="text-zinc-400 text-sm mb-4">
-                {selectedTierPlan.priceLabel} for {selectedTierPlan.weeklyLimit} songs/week and {selectedTierPlan.monthlyLimit} songs/month.
+                {selectedTierPlan.priceLabel} ({selectedTierPlan.mmkPriceLabel}) for {selectedTierPlan.weeklyLimit} songs/week and {selectedTierPlan.monthlyLimit} songs/month.
               </p>
               
               <div className="space-y-4 text-sm max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
@@ -769,6 +806,8 @@ export default function App() {
                     <div className="bg-black/50 p-3 rounded-xl border border-zinc-700/50">
                       <p className="text-zinc-400 text-xs mb-1">Transfer to</p>
                       <p className="font-bold text-white text-base">09989807081 (U Khant Ko Ko Hein)</p>
+                      <p className="mt-2 text-xs font-bold text-amber-300">Amount: {selectedTierPlan.mmkPriceLabel}</p>
+                      <p className="mt-1 text-[10px] text-zinc-500">$1 = 4,000 MMK</p>
                     </div>
                     
                     <button 
@@ -785,11 +824,26 @@ export default function App() {
                       <div className="flex-grow border-t border-zinc-700"></div>
                     </div>
 
+                    <label className="block rounded-2xl border border-dashed border-zinc-700 bg-black/30 p-4 text-center cursor-pointer hover:border-violet-500/50 transition-colors">
+                      <Upload size={18} className="mx-auto mb-2 text-violet-300" />
+                      <span className="block text-xs font-bold text-white">
+                        {paymentProofFile ? paymentProofFile.name : 'Upload payment screenshot'}
+                      </span>
+                      <span className="mt-1 block text-[10px] text-zinc-500">JPG / PNG / WebP screenshot required</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(event) => setPaymentProofFile(event.target.files?.[0] || null)}
+                      />
+                    </label>
+
                     <button 
                       onClick={handleManualPayment}
-                      className="w-full py-2.5 rounded-xl border border-zinc-700 font-bold text-zinc-300 hover:bg-zinc-800 transition-colors"
+                      disabled={isPaymentSubmitting}
+                      className="w-full py-2.5 rounded-xl border border-zinc-700 font-bold text-zinc-300 hover:bg-zinc-800 disabled:opacity-50 transition-colors"
                     >
-                      Report Manual Transfer for {selectedTierPlan.name}
+                      {isPaymentSubmitting ? 'Submitting...' : `Report Manual Transfer for ${selectedTierPlan.name}`}
                     </button>
                   </div>
                 </div>
@@ -809,7 +863,10 @@ export default function App() {
 
               <div className="mt-6 flex gap-4 pt-6 border-t border-zinc-800">
                 <button 
-                  onClick={() => setShowPayment(false)}
+                  onClick={() => {
+                    setShowPayment(false);
+                    setPaymentProofFile(null);
+                  }}
                   className="flex-1 py-3 rounded-xl bg-zinc-800 font-bold hover:bg-zinc-700 text-white transition-colors"
                 >
                   Close
@@ -899,8 +956,18 @@ export default function App() {
                               <p className="font-bold text-sm text-white">{u.email}</p>
                               <p className="text-[10px] text-zinc-500">UID: {u.uid}</p>
                               <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-violet-300">
-                                Requested: {getPlanConfig(u.requestedTier || 'personal').name}
+                                Requested: {getPlanConfig(u.requestedTier || 'personal').name} · {formatMmk(getPlanConfig(u.requestedTier || 'personal').price)}
                               </p>
+                              {u.paymentProofUrl && (
+                                <a
+                                  href={u.paymentProofUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-amber-300 hover:bg-amber-500/20"
+                                >
+                                  <Upload size={12} /> View Screenshot
+                                </a>
+                              )}
                             </div>
                             <div className="flex flex-wrap gap-2">
                               {TIERS.map(tier => (
@@ -912,6 +979,12 @@ export default function App() {
                                   {tier.name}
                                 </button>
                               ))}
+                              <button
+                                onClick={() => handleRejectPayment(u.uid)}
+                                className="flex-1 min-w-[74px] px-3 py-2 bg-red-500/10 text-red-300 border border-red-500/20 rounded-lg text-xs hover:bg-red-600 hover:text-white transition-all"
+                              >
+                                Reject
+                              </button>
                             </div>
                           </div>
                         ))}

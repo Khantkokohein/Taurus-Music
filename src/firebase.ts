@@ -70,6 +70,14 @@ export interface UserProfile {
   tier: UserTier;
   requestedTier?: UserTier | null;
   pendingPayment?: boolean;
+  paymentStatus?: 'pending' | 'approved' | 'rejected' | null;
+  paymentProofUrl?: string;
+  paymentProofPath?: string;
+  paymentProofName?: string;
+  paymentSubmittedAt?: Timestamp;
+  paymentApprovedAt?: Timestamp;
+  paymentRejectedAt?: Timestamp;
+  paymentRejectReason?: string;
   role: 'user' | 'admin';
   weeklyLimit: number;
   songsUsedThisWeek: number;
@@ -221,13 +229,44 @@ export const approvePayment = async (userId: string, tierId: string) => {
     lastRefillDate: today,
     lastMonthlyRefillDate: getMonthKey(),
     pendingPayment: false,
+    paymentStatus: 'approved',
+    paymentApprovedAt: serverTimestamp(),
+    paymentRejectedAt: null,
+    paymentRejectReason: '',
     requestedTier: null
   });
 };
 
-export const requestManualPayment = async (uid: string, requestedTier: UserTier = 'personal') => {
+export const requestManualPayment = async (
+  uid: string,
+  requestedTier: UserTier = 'personal',
+  proof?: { url: string; path: string; name: string }
+) => {
   const userRef = doc(db, 'users', uid);
-  await updateDoc(userRef, { pendingPayment: true, requestedTier });
+  await updateDoc(userRef, {
+    pendingPayment: true,
+    requestedTier,
+    paymentStatus: 'pending',
+    paymentSubmittedAt: serverTimestamp(),
+    paymentRejectedAt: null,
+    paymentRejectReason: '',
+    ...(proof ? {
+      paymentProofUrl: proof.url,
+      paymentProofPath: proof.path,
+      paymentProofName: proof.name,
+    } : {}),
+  });
+};
+
+export const rejectPayment = async (userId: string, reason = 'Rejected by admin') => {
+  const userRef = doc(db, 'users', userId);
+  await updateDoc(userRef, {
+    pendingPayment: false,
+    requestedTier: null,
+    paymentStatus: 'rejected',
+    paymentRejectedAt: serverTimestamp(),
+    paymentRejectReason: reason,
+  });
 };
 
 export type GenerationUsageResult = {
@@ -396,5 +435,27 @@ export const uploadSongAudio = async (userId: string, songId: string, blob: Blob
     audioUrl: await getDownloadURL(audioRef),
     storagePath,
     mimeType: contentType,
+  };
+};
+
+export const uploadPaymentProof = async (userId: string, file: File) => {
+  const contentType = file.type && file.type.startsWith('image/') ? file.type : 'image/jpeg';
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-').slice(-80) || 'payment-proof.jpg';
+  const proofId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const storagePath = `users/${userId}/payment-proofs/${proofId}-${safeName}`;
+  const proofRef = ref(storage, storagePath);
+
+  await uploadBytes(proofRef, file, {
+    contentType,
+    customMetadata: {
+      userId,
+      originalName: file.name,
+    },
+  });
+
+  return {
+    url: await getDownloadURL(proofRef),
+    path: storagePath,
+    name: file.name,
   };
 };
