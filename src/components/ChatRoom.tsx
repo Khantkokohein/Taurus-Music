@@ -39,7 +39,9 @@ interface ChatRoomProps {
 
 const ACTIVE_WINDOW_MS = 60 * 1000;
 const FAKE_ONLINE_MIN = 11;
-const FAKE_ONLINE_MAX = 32;
+const FAKE_ONLINE_MAX = 38;
+const ONLINE_FLUCTUATION_MS = 4500;
+const ONLINE_STEP_OPTIONS = [-3, -2, -1, 1, 2, 3];
 const MAX_MESSAGE_LENGTH = 500;
 const BLOCKED_TERMS = [
   'fuck',
@@ -118,8 +120,12 @@ const getInitialFakeOnline = () => (
 );
 
 const getNextFakeOnline = (current: number) => {
-  const delta = Math.floor(Math.random() * 5) - 2;
-  return Math.max(FAKE_ONLINE_MIN, Math.min(FAKE_ONLINE_MAX, current + delta));
+  const candidates = ONLINE_STEP_OPTIONS
+    .map(step => current + step)
+    .filter(count => count >= FAKE_ONLINE_MIN && count <= FAKE_ONLINE_MAX && count !== current);
+
+  if (candidates.length === 0) return getInitialFakeOnline();
+  return candidates[Math.floor(Math.random() * candidates.length)];
 };
 
 export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
@@ -137,7 +143,7 @@ export default function ChatRoom({ currentUser, onClose }: ChatRoomProps) {
   useEffect(() => {
     const interval = setInterval(() => {
       setFakeOnline(prev => getNextFakeOnline(prev));
-    }, 9000);
+    }, ONLINE_FLUCTUATION_MS);
 
     return () => clearInterval(interval);
   }, []);
