@@ -1282,7 +1282,7 @@ export default function App() {
         </header>
 
         <div className="flex-1 flex flex-col items-center justify-between lg:justify-center p-4 lg:p-12 min-h-0 relative overflow-hidden">
-          <div className="max-w-2xl w-full text-center mb-1 lg:mb-12 relative z-10 shrink-0">
+          <div className="max-w-2xl w-full text-center mb-3 lg:mb-6 relative z-10 shrink-0">
             <motion.h2 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1294,11 +1294,24 @@ export default function App() {
               Describe your mood, Taurus synthesizes the master.
             </p>
 
-            <div className="relative mt-1.5 lg:mt-8 flex justify-center">
+          </div>
+
+          <div className="relative z-20 mb-4 lg:mb-8 flex w-full max-w-4xl shrink-0 flex-col items-center gap-2 lg:gap-3">
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(true)}
+              className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900/90 px-4 py-2 text-[9px] lg:text-[10px] font-black uppercase tracking-widest text-zinc-300 shadow-lg shadow-black/30 transition-all hover:border-violet-500/40 hover:text-white"
+            >
+              <History size={13} />
+              History
+              <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[8px] text-zinc-400">{history.length}</span>
+            </button>
+
+            <div className="relative flex justify-center">
               <button
                 type="button"
                 onClick={() => setIsSoundChooserOpen(prev => !prev)}
-                className="max-w-full rounded-full border border-violet-500/30 bg-violet-600 px-4 py-2 text-[9px] lg:text-[10px] font-black uppercase tracking-widest text-white shadow-[0_0_18px_rgba(139,92,246,0.35)] transition-all hover:bg-violet-500"
+                className="max-w-[92vw] rounded-full border border-violet-500/30 bg-violet-600 px-4 py-2 text-[9px] lg:text-[10px] font-black uppercase tracking-widest text-white shadow-[0_0_18px_rgba(139,92,246,0.35)] transition-all hover:bg-violet-500"
               >
                 Choose Sound: {selectedGenre} · {selectedInstrumentSummary}
               </button>
