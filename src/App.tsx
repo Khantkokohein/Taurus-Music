@@ -54,6 +54,8 @@ import {
   getEffectivePlanConfig,
   getPlanConfig,
   getTimestampMillis,
+  isOwnerEmail,
+  isOwnerProfile,
   isSubscriptionExpired,
   UserProfile,
   UserTier
@@ -210,8 +212,9 @@ export default function App() {
   const [searchEmail, setSearchEmail] = useState('');
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [newCredits, setNewCredits] = useState<number>(0);
+  const isOwnerUnlimited = isOwnerEmail(user?.email) || isOwnerProfile(profile);
   const accountBanUntil = getBanUntilMillis(profile);
-  const isAccountBanned = accountBanUntil > Date.now();
+  const isAccountBanned = !isOwnerUnlimited && accountBanUntil > Date.now();
   const subscriptionExpiresAt = getTimestampMillis(profile?.subscriptionExpiresAt);
   const subscriptionExpired = isSubscriptionExpired(profile);
   const activePlan = getEffectivePlanConfig(profile);
@@ -221,6 +224,13 @@ export default function App() {
   const monthlyUsed = profile?.songsUsedThisMonth || 0;
   const weeklyRemaining = Math.max(profileWeeklyLimit - weeklyUsed, 0);
   const monthlyRemaining = Math.max(profileMonthlyLimit - monthlyUsed, 0);
+  const weeklyProgress = isOwnerUnlimited ? 100 : Math.min((weeklyUsed / profileWeeklyLimit) * 100, 100);
+  const monthlyProgress = isOwnerUnlimited ? 100 : Math.min((monthlyUsed / profileMonthlyLimit) * 100, 100);
+  const quotaName = isOwnerUnlimited ? 'Owner Unlimited' : `${activePlan.name} Quota`;
+  const weeklyQuotaLabel = isOwnerUnlimited ? 'Unlimited' : `${weeklyRemaining} / ${profileWeeklyLimit} week`;
+  const monthlyQuotaLabel = isOwnerUnlimited ? 'Unlimited' : `${monthlyRemaining} / ${profileMonthlyLimit}`;
+  const needsVoiceUpgrade = !isOwnerUnlimited && (profile?.tier === 'free' || !profile?.tier);
+  const isAdminUser = isOwnerUnlimited || profile?.role === 'admin';
   const selectedTierPlan = TIERS.find(tier => tier.id === selectedTier) || TIERS[0];
   const selectedInstrumentSummary = selectedInstruments.length > 0 ? selectedInstruments.join(', ') : 'Auto arrangement';
 
@@ -233,13 +243,13 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!profile || profile.role !== 'admin' || !showAdmin) return;
+    if (!profile || !isAdminUser || !showAdmin) return;
     const q = query(collection(db, 'users'), where('pendingPayment', '==', true));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setPendingUsers(snapshot.docs.map(doc => doc.data() as UserProfile));
     });
     return () => unsubscribe();
-  }, [profile, showAdmin]);
+  }, [profile, isAdminUser, showAdmin]);
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | undefined;
@@ -266,7 +276,7 @@ export default function App() {
           setProfile(liveProfile);
 
           // Auto-open admin if path is /admin and user is admin
-          if (window.location.pathname === '/admin' && liveProfile.role === 'admin') {
+          if (window.location.pathname === '/admin' && (liveProfile.role === 'admin' || isOwnerEmail(liveProfile.email))) {
             setShowAdmin(true);
           }
         });
@@ -521,6 +531,7 @@ export default function App() {
       // Usage update locally
       setProfile(prev => {
         if (!prev) return null;
+        if (usage.mode === 'owner') return prev;
         const plan = getEffectivePlanConfig(prev);
         const weeklyLimit = prev.weeklyLimit || plan.weeklyLimit;
         const monthlyLimit = prev.monthlyLimit || plan.monthlyLimit;
@@ -644,7 +655,7 @@ export default function App() {
         {showChat && (
           <ChatRoom 
             currentUser={user} 
-            isAdmin={profile?.role === 'admin'}
+            isAdmin={isAdminUser}
             onClose={() => setShowChat(false)} 
           />
         )}
@@ -952,7 +963,7 @@ export default function App() {
 
       {/* Admin Dashboard */}
       <AnimatePresence>
-        {showAdmin && profile?.role === 'admin' && (
+        {showAdmin && isAdminUser && (
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -1174,8 +1185,8 @@ export default function App() {
                   <img src={user.photoURL || ''} className="w-8 h-8 rounded-full border border-zinc-700" alt="Avatar" />
                   <div className="overflow-hidden">
                     <p className="text-xs font-bold text-white truncate w-24">{user.displayName}</p>
-                    <p className={`text-[10px] font-black uppercase tracking-tighter ${profile?.tier !== 'free' && !subscriptionExpired ? 'text-violet-400' : 'text-zinc-500'}`}>
-                      {subscriptionExpired ? 'expired' : (profile?.tier || 'free')} plan
+                    <p className={`text-[10px] font-black uppercase tracking-tighter ${isOwnerUnlimited || (profile?.tier !== 'free' && !subscriptionExpired) ? 'text-violet-400' : 'text-zinc-500'}`}>
+                      {isOwnerUnlimited ? 'owner unlimited' : `${subscriptionExpired ? 'expired' : (profile?.tier || 'free')} plan`}
                     </p>
                   </div>
                 </div>
@@ -1184,7 +1195,7 @@ export default function App() {
                 </button>
               </div>
 
-              {profile?.role === 'admin' && (
+              {isAdminUser && (
                 <button 
                   onClick={() => setShowAdmin(true)}
                   className="w-full py-2.5 rounded-xl bg-emerald-600/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center gap-2"
@@ -1195,27 +1206,27 @@ export default function App() {
 
               <div className="bg-zinc-800/30 rounded-xl p-3 border border-zinc-700/30">
                 <div className="flex justify-between items-center mb-1">
-                  <span className="text-[10px] text-zinc-500 uppercase font-bold">{activePlan.name} Quota</span>
-                  <span className="text-[10px] font-bold text-violet-400">{weeklyRemaining} / {profileWeeklyLimit} week</span>
+                  <span className="text-[10px] text-zinc-500 uppercase font-bold">{quotaName}</span>
+                  <span className="text-[10px] font-bold text-violet-400">{weeklyQuotaLabel}</span>
                 </div>
                 <div className="w-full bg-zinc-950 h-1 rounded-full overflow-hidden">
                   <motion.div 
-                    animate={{ width: `${Math.min((weeklyUsed / profileWeeklyLimit) * 100, 100)}%` }}
+                    animate={{ width: `${weeklyProgress}%` }}
                     className="bg-violet-500 h-full shadow-[0_0_10px_rgba(139,92,246,0.5)]" 
                   />
                 </div>
                 <div className="mt-3 flex items-center justify-between text-[9px] font-bold text-zinc-500">
                   <span>Monthly left</span>
-                  <span className="font-mono text-zinc-300">{monthlyRemaining} / {profileMonthlyLimit}</span>
+                  <span className="font-mono text-zinc-300">{monthlyQuotaLabel}</span>
                 </div>
                 <div className="mt-1 w-full bg-zinc-950 h-1 rounded-full overflow-hidden">
                   <motion.div 
-                    animate={{ width: `${Math.min((monthlyUsed / profileMonthlyLimit) * 100, 100)}%` }}
+                    animate={{ width: `${monthlyProgress}%` }}
                     className="bg-emerald-500 h-full shadow-[0_0_10px_rgba(16,185,129,0.35)]" 
                   />
                 </div>
                 <p className="text-[8px] text-zinc-600 mt-2 uppercase font-bold tracking-tighter">Daily reward: {profile?.points || 0} pts (+10/day)</p>
-                {profile?.tier !== 'free' && subscriptionExpiresAt > 0 && (
+                {!isOwnerUnlimited && profile?.tier !== 'free' && subscriptionExpiresAt > 0 && (
                   <p className={`text-[8px] mt-2 uppercase font-bold tracking-tighter ${subscriptionExpired ? 'text-red-300' : 'text-violet-300'}`}>
                     {subscriptionExpired ? 'Expired' : `Expires ${new Date(subscriptionExpiresAt).toLocaleDateString()}`}
                   </p>
@@ -1268,7 +1279,7 @@ export default function App() {
             <span className="text-white truncate max-w-[120px] sm:max-w-none">AI Instrumentalist</span>
           </div>
           <div className="flex gap-2 sm:gap-4">
-             {profile?.role === 'admin' && (
+             {isAdminUser && (
                 <div className="hidden md:block px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold text-emerald-500">
                   ADMIN OVERRIDE ACTIVE
                 </div>
@@ -1374,7 +1385,7 @@ export default function App() {
                   <select 
                     value={selectedVoice} 
                     onChange={(e) => {
-                      const isFreeUser = profile?.tier === 'free' || !profile?.tier;
+                      const isFreeUser = needsVoiceUpgrade;
                       if (isFreeUser && e.target.value !== 'Duet/Pair') {
                         setShowUpgrade(true);
                       } else {

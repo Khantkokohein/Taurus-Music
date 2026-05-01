@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Bot, Gift, Loader2, MessageSquare, Music, Send, ShieldAlert, Users, X } from 'lucide-react';
 import { collection, query, orderBy, onSnapshot, limit, serverTimestamp, setDoc, doc, deleteDoc, updateDoc, Timestamp, increment, getDocs } from 'firebase/firestore';
-import { CHAT_BAN_DURATION_MS, CHAT_BAN_THRESHOLD, db } from '../firebase';
+import { CHAT_BAN_DURATION_MS, CHAT_BAN_THRESHOLD, db, isOwnerEmail } from '../firebase';
 
 interface Message {
   id: string;
@@ -190,6 +190,7 @@ export default function ChatRoom({ currentUser, isAdmin = false, onClose }: Chat
   const [isGivingAway, setIsGivingAway] = useState(false);
   const [fakeOnline, setFakeOnline] = useState(getInitialFakeOnline);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const isOwnerUnlimited = isOwnerEmail(currentUser?.email);
   const onlineCount = fakeOnline + activeUsers.length;
   const onlineNames = [
     ...activeUsers.map(user => user.displayName).filter(Boolean),
@@ -275,7 +276,7 @@ export default function ChatRoom({ currentUser, isAdmin = false, onClose }: Chat
       const data = snapshot.data();
       const bannedUntil = data?.chatBannedUntil?.toMillis ? data.chatBannedUntil.toMillis() : 0;
       setBanState({
-        active: bannedUntil > Date.now(),
+        active: !isOwnerUnlimited && bannedUntil > Date.now(),
         until: bannedUntil || undefined,
         reason: data?.chatBanReason,
         violationCount: data?.chatViolationCount || 0,
@@ -286,7 +287,7 @@ export default function ChatRoom({ currentUser, isAdmin = false, onClose }: Chat
     });
 
     return () => unsubscribeProfile();
-  }, [currentUser?.uid]);
+  }, [currentUser?.uid, isOwnerUnlimited]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -394,7 +395,7 @@ export default function ChatRoom({ currentUser, isAdmin = false, onClose }: Chat
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || !currentUser || banState.active || isSending) return;
+    if (!inputText.trim() || !currentUser || (!isOwnerUnlimited && banState.active) || isSending) return;
     
     const textToSend = inputText.trim().slice(0, MAX_MESSAGE_LENGTH);
     setInputText('');
@@ -402,7 +403,7 @@ export default function ChatRoom({ currentUser, isAdmin = false, onClose }: Chat
     
     try {
       setIsSending(true);
-      if (containsBlockedTerm(textToSend)) {
+      if (!isOwnerUnlimited && containsBlockedTerm(textToSend)) {
         const nextCount = (banState.violationCount || 0) + 1;
         await recordViolation(textToSend);
         setChatError(nextCount >= CHAT_BAN_THRESHOLD
@@ -487,6 +488,7 @@ export default function ChatRoom({ currentUser, isAdmin = false, onClose }: Chat
   const banLabel = banState.until
     ? `Banned until ${new Date(banState.until).toLocaleDateString()}`
     : 'Chat paused';
+  const chatBlocked = !isOwnerUnlimited && banState.active;
 
   return (
     <motion.div 
@@ -606,10 +608,10 @@ export default function ChatRoom({ currentUser, isAdmin = false, onClose }: Chat
       </div>
 
       <form onSubmit={sendMessage} className="p-4 bg-zinc-900 border-t border-zinc-800">
-        {(chatError || banState.active) && (
+        {(chatError || chatBlocked) && (
           <div className="mb-3 flex items-start gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-200">
             <ShieldAlert size={14} className="mt-0.5 shrink-0" />
-            <span>{banState.active ? banLabel : chatError}</span>
+            <span>{chatBlocked ? banLabel : chatError}</span>
           </div>
         )}
         <div className="relative">
@@ -619,13 +621,13 @@ export default function ChatRoom({ currentUser, isAdmin = false, onClose }: Chat
             onChange={(e) => setInputText(e.target.value)}
             maxLength={MAX_MESSAGE_LENGTH}
             placeholder={currentUser ? "Drop a message..." : "Login to chat"}
-            disabled={!currentUser || banState.active}
+            disabled={!currentUser || chatBlocked}
             className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl py-3 pl-4 pr-20 text-sm outline-none focus:ring-1 focus:ring-violet-500/50 transition-all placeholder:text-zinc-600 disabled:opacity-50"
           />
           <button
             type="button"
             onClick={insertAiMention}
-            disabled={!currentUser || banState.active}
+            disabled={!currentUser || chatBlocked}
             title="Ask Taurus AI"
             className="absolute right-11 top-1/2 -translate-y-1/2 w-8 h-8 rounded-xl text-violet-300 flex items-center justify-center hover:bg-zinc-800 disabled:opacity-50 transition-all"
           >
@@ -633,7 +635,7 @@ export default function ChatRoom({ currentUser, isAdmin = false, onClose }: Chat
           </button>
           <button 
             type="submit"
-            disabled={!inputText.trim() || !currentUser || banState.active || isSending}
+            disabled={!inputText.trim() || !currentUser || chatBlocked || isSending}
             className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-xl bg-violet-600 text-white flex items-center justify-center hover:bg-violet-500 disabled:opacity-50 disabled:hover:bg-violet-600 transition-all"
           >
             {isSending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}

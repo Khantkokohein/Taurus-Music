@@ -15,6 +15,16 @@ export const SONG_POINT_COST = 100;
 export const CHAT_BAN_THRESHOLD = 3;
 export const CHAT_BAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 export const LYRIA_SONG_API_COST_USD = 0.08;
+export const OWNER_EMAIL = 'koheinkhantko51@gmail.com';
+export const UNLIMITED_REMAINING = Number.MAX_SAFE_INTEGER;
+
+export const isOwnerEmail = (email?: string | null) => (
+  (email || '').trim().toLowerCase() === OWNER_EMAIL
+);
+
+export const isOwnerProfile = (profile?: { email?: string | null } | null) => (
+  isOwnerEmail(profile?.email)
+);
 
 export type UserTier = 'free' | 'personal' | 'pro' | 'prime' | 'premium';
 
@@ -175,7 +185,7 @@ export const createUserProfile = async (uid: string, email: string, displayName 
     lastPointGrantDate: today,
     totalPointsEarned: DAILY_POINT_GRANT,
     tier: 'free',
-    role: email === 'koheinkhantko51@gmail.com' ? 'admin' : 'user',
+    role: isOwnerEmail(email) ? 'admin' : 'user',
     weeklyLimit: freePlan.weeklyLimit,
     songsUsedThisWeek: 0,
     lastRefillDate: today,
@@ -308,7 +318,7 @@ export const rejectPayment = async (userId: string, reason = 'Rejected by admin'
 
 export type GenerationUsageResult = {
   allowed: boolean;
-  mode: 'points' | 'tier' | 'banned';
+  mode: 'points' | 'tier' | 'banned' | 'owner';
   remaining: number;
   weeklyRemaining?: number;
   monthlyRemaining?: number;
@@ -354,7 +364,16 @@ export const checkGenerationAccess = async (uid: string): Promise<GenerationUsag
   if (!userSnap.exists()) return { allowed: false, mode: 'points', remaining: 0 };
   
   const data = userSnap.data() as UserProfile;
-  if (isUserBanned(data)) return { allowed: false, mode: 'banned', remaining: 0 };
+  if (!isOwnerProfile(data) && isUserBanned(data)) return { allowed: false, mode: 'banned', remaining: 0 };
+  if (isOwnerProfile(data)) {
+    return {
+      allowed: true,
+      mode: 'owner',
+      remaining: UNLIMITED_REMAINING,
+      weeklyRemaining: UNLIMITED_REMAINING,
+      monthlyRemaining: UNLIMITED_REMAINING,
+    };
+  }
 
   const quota = getQuotaState(data);
   if (quota.resetWeekly || quota.resetMonthly || data.weeklyLimit !== quota.weeklyLimit || data.monthlyLimit !== quota.monthlyLimit) {
@@ -386,7 +405,16 @@ export const consumeGenerationCredit = async (uid: string): Promise<GenerationUs
     if (!freshSnap.exists()) return { allowed: false, mode: 'points' as const, remaining: 0 };
 
     const data = freshSnap.data() as UserProfile;
-    if (isUserBanned(data)) return { allowed: false, mode: 'banned' as const, remaining: 0 };
+    if (!isOwnerProfile(data) && isUserBanned(data)) return { allowed: false, mode: 'banned' as const, remaining: 0 };
+    if (isOwnerProfile(data)) {
+      return {
+        allowed: true,
+        mode: 'owner' as const,
+        remaining: UNLIMITED_REMAINING,
+        weeklyRemaining: UNLIMITED_REMAINING,
+        monthlyRemaining: UNLIMITED_REMAINING,
+      };
+    }
 
     const quota = getQuotaState(data);
     if (quota.remaining <= 0) {
