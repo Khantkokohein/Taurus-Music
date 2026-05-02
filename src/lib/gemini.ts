@@ -59,6 +59,7 @@ export const generateSongAudio = async ({
   lyricsMode,
   instrumental,
   styleText,
+  artistName,
   weirdness,
   styleInfluence,
   durationMode,
@@ -73,6 +74,7 @@ export const generateSongAudio = async ({
   lyricsMode: string;
   instrumental: boolean;
   styleText: string;
+  artistName: string;
   weirdness: number;
   styleInfluence: number;
   durationMode: string;
@@ -90,6 +92,7 @@ export const generateSongAudio = async ({
     `Variation: ${variantLabel}.`,
     `Model profile: ${modelProfile}.`,
     `Style tags: ${styleText || genreDescription}.`,
+    `Artist/vibe reference: ${artistName || 'none'}. Use only broad genre, mood, vocal energy, arrangement, and production texture. Do not imitate or clone the exact artist voice, melody, lyrics, identity, or copyrighted song; create an original Taurus performance.`,
     `Vocal direction: ${voice}.`,
     `Lyrics mode: ${lyricsMode}. ${instrumental ? 'Create an instrumental track with no vocals.' : lyricsText ? `Use and adapt these lyrics naturally: ${lyricsText}.` : 'Write original lyrics when needed.'}`,
     `Creative controls: weirdness ${weirdness}%, style influence ${styleInfluence}%.`,
@@ -140,6 +143,7 @@ export const analyzeVoiceReference = async ({
   lyricsMode,
   instrumental,
   styleText,
+  artistName,
   genreDescription,
   arrangementDescription,
   modelProfile,
@@ -154,6 +158,7 @@ export const analyzeVoiceReference = async ({
   lyricsMode: string;
   instrumental: boolean;
   styleText: string;
+  artistName: string;
   genreDescription: string;
   arrangementDescription: string;
   modelProfile: string;
@@ -183,6 +188,7 @@ export const analyzeVoiceReference = async ({
             `Model profile: ${modelProfile}.`,
             `Target style: ${genreDescription || 'modern pop'}.`,
             `Style tags: ${styleText || 'match the audio reference and selected genre'}.`,
+            `Artist/vibe reference: ${artistName || 'none'}. Use broad mood, genre, arrangement, and vocal energy only. Do not imitate or clone the exact artist voice, melody, lyrics, identity, or copyrighted song.`,
             `Selected arrangement: ${arrangementDescription || 'full-band studio arrangement'}.`,
             `Vocal choice: ${voice || 'Duet/Pair'}.`,
             `Creative controls: weirdness ${weirdness}%, style influence ${styleInfluence}%.`,

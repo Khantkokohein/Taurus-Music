@@ -46,6 +46,7 @@ const analyzeVoiceReference = async ({
   lyricsMode,
   instrumental,
   styleText,
+  artistName,
   genreDescription,
   arrangementDescription,
   modelProfile,
@@ -60,6 +61,7 @@ const analyzeVoiceReference = async ({
   lyricsMode: string;
   instrumental: boolean;
   styleText: string;
+  artistName: string;
   genreDescription: string;
   arrangementDescription: string;
   modelProfile: string;
@@ -95,6 +97,7 @@ const analyzeVoiceReference = async ({
             `Model profile: ${modelProfile}.`,
             `Target style: ${genreDescription || 'modern pop'}.`,
             `Style tags: ${styleText || 'match the audio reference and selected genre'}.`,
+            `Artist/vibe reference: ${artistName || 'none'}. Use broad mood, genre, arrangement, and vocal energy only. Do not imitate or clone the exact artist voice, melody, lyrics, identity, or copyrighted song.`,
             `Selected arrangement: ${arrangementDescription || 'full-band studio arrangement'}.`,
             `Vocal choice: ${voice || 'Duet/Pair'}.`,
             `Creative controls: weirdness ${weirdness}%, style influence ${styleInfluence}%.`,
@@ -130,6 +133,7 @@ export default async function handler(req: any, res: any) {
       lyricsMode,
       instrumental,
       styleText,
+      artistName,
       genreDescription,
       arrangementDescription,
       modelProfile,
@@ -158,6 +162,7 @@ export default async function handler(req: any, res: any) {
       lyricsMode: lyricsMode === 'auto' ? 'auto' : 'manual',
       instrumental: instrumental === true,
       styleText: typeof styleText === 'string' ? styleText.slice(0, 500) : '',
+      artistName: typeof artistName === 'string' ? artistName.slice(0, 80) : '',
       genreDescription: typeof genreDescription === 'string' ? genreDescription.slice(0, 240) : 'modern pop',
       arrangementDescription: typeof arrangementDescription === 'string' ? arrangementDescription.slice(0, 500) : 'full-band studio arrangement',
       modelProfile: typeof modelProfile === 'string' ? modelProfile.slice(0, 300) : 'Taurus Apex L5 free-start profile with flagship vocal and studio master quality',

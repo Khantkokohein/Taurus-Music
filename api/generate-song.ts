@@ -32,6 +32,7 @@ const generateSongAudio = async ({
   lyricsMode,
   instrumental,
   styleText,
+  artistName,
   weirdness,
   styleInfluence,
   durationMode,
@@ -46,6 +47,7 @@ const generateSongAudio = async ({
   lyricsMode: string;
   instrumental: boolean;
   styleText: string;
+  artistName: string;
   weirdness: number;
   styleInfluence: number;
   durationMode: string;
@@ -69,6 +71,7 @@ const generateSongAudio = async ({
     `Variation: ${variantLabel}.`,
     `Model profile: ${modelProfile}.`,
     `Style tags: ${styleText || genreDescription}.`,
+    `Artist/vibe reference: ${artistName || 'none'}. Use only broad genre, mood, vocal energy, arrangement, and production texture. Do not imitate or clone the exact artist voice, melody, lyrics, identity, or copyrighted song; create an original Taurus performance.`,
     `Vocal direction: ${voice}.`,
     `Lyrics mode: ${lyricsMode}. ${instrumental ? 'Create an instrumental track with no vocals.' : lyricsText ? `Use and adapt these lyrics naturally: ${lyricsText}.` : 'Write original lyrics when needed.'}`,
     `Creative controls: weirdness ${weirdness}%, style influence ${styleInfluence}%.`,
@@ -119,7 +122,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     await requireFirebaseAuth(req);
-    const { prompt, genreDescription, arrangementDescription, modelProfile, lyricsText, lyricsMode, instrumental, styleText, weirdness, styleInfluence, durationMode, variantLabel, voice } = req.body || {};
+    const { prompt, genreDescription, arrangementDescription, modelProfile, lyricsText, lyricsMode, instrumental, styleText, artistName, weirdness, styleInfluence, durationMode, variantLabel, voice } = req.body || {};
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ error: 'Prompt is required.' });
     }
@@ -133,6 +136,7 @@ export default async function handler(req: any, res: any) {
       lyricsMode: lyricsMode === 'auto' ? 'auto' : 'manual',
       instrumental: instrumental === true,
       styleText: typeof styleText === 'string' ? styleText.slice(0, 500) : '',
+      artistName: typeof artistName === 'string' ? artistName.slice(0, 80) : '',
       weirdness: typeof weirdness === 'number' ? Math.max(0, Math.min(100, weirdness)) : 50,
       styleInfluence: typeof styleInfluence === 'number' ? Math.max(0, Math.min(100, styleInfluence)) : 50,
       durationMode: durationMode === 'preview' ? 'preview' : 'full',

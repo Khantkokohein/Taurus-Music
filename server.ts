@@ -62,7 +62,7 @@ async function startServer() {
   app.post('/api/generate-song', async (req, res) => {
     try {
       await requireFirebaseAuth(req);
-      const { prompt, genreDescription, arrangementDescription, modelProfile, lyricsText, lyricsMode, instrumental, styleText, weirdness, styleInfluence, durationMode, variantLabel, voice } = req.body || {};
+      const { prompt, genreDescription, arrangementDescription, modelProfile, lyricsText, lyricsMode, instrumental, styleText, artistName, weirdness, styleInfluence, durationMode, variantLabel, voice } = req.body || {};
       if (!prompt || typeof prompt !== 'string') {
         return res.status(400).json({ error: 'Prompt is required.' });
       }
@@ -76,6 +76,7 @@ async function startServer() {
         lyricsMode: lyricsMode === 'auto' ? 'auto' : 'manual',
         instrumental: instrumental === true,
         styleText: typeof styleText === 'string' ? styleText.slice(0, 500) : '',
+        artistName: typeof artistName === 'string' ? artistName.slice(0, 80) : '',
         weirdness: typeof weirdness === 'number' ? Math.max(0, Math.min(100, weirdness)) : 50,
         styleInfluence: typeof styleInfluence === 'number' ? Math.max(0, Math.min(100, styleInfluence)) : 50,
         durationMode: durationMode === 'preview' ? 'preview' : 'full',
@@ -92,7 +93,7 @@ async function startServer() {
   app.post('/api/analyze-voice', async (req, res) => {
     try {
       await requireFirebaseAuth(req);
-      const { audioBase64, mimeType, idea, lyricsText, lyricsMode, instrumental, styleText, genreDescription, arrangementDescription, modelProfile, weirdness, styleInfluence, voice } = req.body || {};
+      const { audioBase64, mimeType, idea, lyricsText, lyricsMode, instrumental, styleText, artistName, genreDescription, arrangementDescription, modelProfile, weirdness, styleInfluence, voice } = req.body || {};
       if (!audioBase64 || typeof audioBase64 !== 'string') {
         return res.status(400).json({ error: 'Voice audio is required.' });
       }
@@ -108,6 +109,7 @@ async function startServer() {
         lyricsMode: lyricsMode === 'auto' ? 'auto' : 'manual',
         instrumental: instrumental === true,
         styleText: typeof styleText === 'string' ? styleText.slice(0, 500) : '',
+        artistName: typeof artistName === 'string' ? artistName.slice(0, 80) : '',
         genreDescription: typeof genreDescription === 'string' ? genreDescription.slice(0, 240) : 'modern pop',
         arrangementDescription: typeof arrangementDescription === 'string' ? arrangementDescription.slice(0, 500) : 'full-band studio arrangement',
         modelProfile: typeof modelProfile === 'string' ? modelProfile.slice(0, 300) : 'Taurus Apex L5 free-start profile with flagship vocal and studio master quality',

@@ -323,6 +323,7 @@ export default function App() {
   const [lyricsText, setLyricsText] = useState('');
   const [lyricsMode, setLyricsMode] = useState<'manual' | 'auto'>('manual');
   const [instrumental, setInstrumental] = useState(false);
+  const [artistName, setArtistName] = useState('');
   const [styleText, setStyleText] = useState('rhythmic complexity, ethereal neo soul, synth stabs, new rock, jangle pop');
   const [weirdness, setWeirdness] = useState(50);
   const [styleInfluence, setStyleInfluence] = useState(50);
@@ -382,7 +383,7 @@ export default function App() {
   const selectedTierPlan = TIERS.find(tier => tier.id === selectedTier) || TIERS[0];
   const selectedInstrumentSummary = selectedInstruments.length > 0 ? selectedInstruments.join(', ') : 'Auto arrangement';
   const selectedModelProfile = MODEL_OPTIONS.find(model => model.id === selectedModel) || MODEL_OPTIONS[0];
-  const hasGenerationPrompt = Boolean((optimizedPrompt || idea || lyricsText || styleText).trim() || voiceFile);
+  const hasGenerationPrompt = Boolean((optimizedPrompt || idea || lyricsText || styleText || artistName).trim() || voiceFile);
   const genreDescription = GENRE_OPTIONS.find(genre => genre.id === selectedGenre)?.description || selectedGenre;
   const styleTags = styleText.split(',').map(tag => tag.trim()).filter(Boolean);
   const arrangementDescription = selectedInstruments.length > 0
@@ -811,6 +812,7 @@ export default function App() {
         lyricsMode,
         instrumental,
         styleText,
+        artistName,
         genreDescription,
         arrangementDescription,
         modelProfile,
@@ -919,6 +921,7 @@ export default function App() {
           lyricsMode,
           instrumental,
           styleText,
+          artistName,
           weirdness,
           styleInfluence,
           durationMode: variant.durationMode,
@@ -932,7 +935,7 @@ export default function App() {
           newSongId,
           audioBase64ToBlob(generation.audioBase64, generation.mimeType)
         );
-        const baseTitle = idea || lyricsText || styleText || 'Studio track';
+        const baseTitle = idea || lyricsText || artistName || styleText || 'Studio track';
         const newSong = {
           id: newSongId,
           idea: `${baseTitle} · ${variant.title}`,
@@ -2018,6 +2021,20 @@ export default function App() {
                     </optgroup>
                   </select>
                 </div>
+              </div>
+              <div className="mx-4 lg:mx-10 mt-3 rounded-2xl border border-zinc-800 bg-zinc-950/55 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-xs font-bold text-white">Artist Name</p>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">Vibe only</span>
+                </div>
+                <input
+                  type="text"
+                  value={artistName}
+                  onChange={(event) => setArtistName(event.target.value)}
+                  maxLength={80}
+                  className="w-full bg-transparent text-sm text-white placeholder-zinc-700 outline-none"
+                  placeholder="Artist vibe reference"
+                />
               </div>
               <div className="mx-4 lg:mx-10 mt-3 rounded-2xl border border-zinc-800 bg-zinc-950/55 p-3 lg:p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
