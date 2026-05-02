@@ -98,7 +98,7 @@ const analyzeVoiceReference = async ({
             `Selected arrangement: ${arrangementDescription || 'full-band studio arrangement'}.`,
             `Vocal choice: ${voice || 'Duet/Pair'}.`,
             `Creative controls: weirdness ${weirdness}%, style influence ${styleInfluence}%.`,
-            'Create a prompt for a high-fidelity, radio-ready 90-second song with polished vocals, full instrumental production, clear hook, verse/chorus structure, and mastered mix.',
+            'Create a prompt for a high-fidelity, radio-ready 2:50 to 3:30 full song with polished vocals, full instrumental production, clear hook, verse/chorus structure, and mastered mix. Make it perform the whole idea from start to final outro.',
           ].join('\n'),
         },
         {
