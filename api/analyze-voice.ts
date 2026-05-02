@@ -160,7 +160,7 @@ export default async function handler(req: any, res: any) {
       styleText: typeof styleText === 'string' ? styleText.slice(0, 500) : '',
       genreDescription: typeof genreDescription === 'string' ? genreDescription.slice(0, 240) : 'modern pop',
       arrangementDescription: typeof arrangementDescription === 'string' ? arrangementDescription.slice(0, 500) : 'full-band studio arrangement',
-      modelProfile: typeof modelProfile === 'string' ? modelProfile.slice(0, 300) : 'Taurus v5.5 Power Voice free-start profile',
+      modelProfile: typeof modelProfile === 'string' ? modelProfile.slice(0, 300) : 'Taurus Apex L5 free-start profile with flagship vocal and studio master quality',
       weirdness: typeof weirdness === 'number' ? Math.max(0, Math.min(100, weirdness)) : 50,
       styleInfluence: typeof styleInfluence === 'number' ? Math.max(0, Math.min(100, styleInfluence)) : 50,
       voice: typeof voice === 'string' ? voice.slice(0, 120) : 'Duet/Pair',

@@ -128,7 +128,7 @@ export default async function handler(req: any, res: any) {
       prompt: prompt.slice(0, 1200),
       genreDescription: typeof genreDescription === 'string' ? genreDescription.slice(0, 240) : 'modern pop',
       arrangementDescription: typeof arrangementDescription === 'string' ? arrangementDescription.slice(0, 500) : 'balanced full-band arrangement',
-      modelProfile: typeof modelProfile === 'string' ? modelProfile.slice(0, 300) : 'Taurus v5.5 Power Voice free-start profile',
+      modelProfile: typeof modelProfile === 'string' ? modelProfile.slice(0, 300) : 'Taurus Apex L5 free-start profile with flagship vocal and studio master quality',
       lyricsText: typeof lyricsText === 'string' ? lyricsText.slice(0, 2000) : '',
       lyricsMode: lyricsMode === 'auto' ? 'auto' : 'manual',
       instrumental: instrumental === true,

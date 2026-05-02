@@ -152,11 +152,41 @@ const INSTRUMENT_OPTIONS = [
 ];
 
 const MODEL_OPTIONS = [
-  { id: 'v55-power', label: 'v5.5 Power', detail: 'Power voice, custom styles, studio control' },
-  { id: 'v5-pro', label: 'v5 Pro', detail: 'Authentic vocals and superior audio control' },
-  { id: 'v45-plus', label: 'v4.5+', detail: 'Advanced creation methods' },
-  { id: 'v45-all', label: 'v4.5-all', detail: 'Best free model' },
-  { id: 'v4-studio', label: 'v4 Studio', detail: 'Improved sound quality' },
+  {
+    id: 'apex-l5',
+    label: 'Taurus Apex',
+    level: 'L5',
+    detail: 'Flagship vocal strength, custom styles, widest studio control',
+    qualityRule: 'highest fidelity, most realistic vocal presence, deepest mix detail, premium master',
+  },
+  {
+    id: 'nova-l4',
+    label: 'Taurus Nova',
+    level: 'L4',
+    detail: 'Authentic vocals, clean arrangement control, polished master',
+    qualityRule: 'high fidelity, natural vocal tone, balanced instruments, clean commercial master',
+  },
+  {
+    id: 'aurora-l3',
+    label: 'Taurus Aurora',
+    level: 'L3',
+    detail: 'Advanced creation, broader genre control, bright hook focus',
+    qualityRule: 'solid fidelity, clear hook, energetic arrangement, controlled vocal layering',
+  },
+  {
+    id: 'core-l2',
+    label: 'Taurus Core',
+    level: 'L2',
+    detail: 'Best free balanced model for full songs',
+    qualityRule: 'balanced free quality, stable structure, clear lead vocal, simple mastered mix',
+  },
+  {
+    id: 'wave-l1',
+    label: 'Taurus Wave',
+    level: 'L1',
+    detail: 'Fast studio sketch with improved sound',
+    qualityRule: 'lightweight quality, clean demo master, simple vocal and instrument balance',
+  },
 ];
 
 const STYLE_PRESETS = [
@@ -165,14 +195,14 @@ const STYLE_PRESETS = [
   'synth stabs',
   'new rock',
   'jangle pop',
-  'power voice',
+  'apex vocal lift',
   'cinematic hook',
 ];
 
 const VOCAL_GENDER_OPTIONS = [
-  { label: 'Male', value: 'Male Power Voice' },
-  { label: 'Female', value: 'Female Power Voice' },
-  { label: 'Duet', value: 'Duet/Pair Power Voice' },
+  { label: 'Male', value: 'Male Taurus Apex Voice' },
+  { label: 'Female', value: 'Female Taurus Apex Voice' },
+  { label: 'Duet', value: 'Duet Taurus Apex Voice' },
 ];
 
 const VOICES = {
@@ -234,8 +264,8 @@ export default function App() {
   const [idea, setIdea] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('Pop Essence');
   const [selectedInstruments, setSelectedInstruments] = useState<string[]>(['Piano', 'Bass Boost']);
-  const [selectedVoice, setSelectedVoice] = useState('Duet/Pair Power Voice');
-  const [selectedModel, setSelectedModel] = useState('v55-power');
+  const [selectedVoice, setSelectedVoice] = useState('Duet Taurus Apex Voice');
+  const [selectedModel, setSelectedModel] = useState('apex-l5');
   const [creationMode, setCreationMode] = useState<'simple' | 'advanced'>('advanced');
   const [lyricsText, setLyricsText] = useState('');
   const [lyricsMode, setLyricsMode] = useState<'manual' | 'auto'>('manual');
@@ -305,7 +335,7 @@ export default function App() {
         .map(instrument => `${instrument.id}: ${instrument.description}`)
         .join('; ')
     : 'Let Taurus AI choose the best complete arrangement.';
-  const modelProfile = `${selectedModelProfile.label}: ${selectedModelProfile.detail}. Free-start access enabled.`;
+  const modelProfile = `${selectedModelProfile.label} ${selectedModelProfile.level}: ${selectedModelProfile.detail}. Quality rule: ${selectedModelProfile.qualityRule}. Free-start access enabled.`;
   const needsVoiceUpgrade = false;
   const hasPremiumFullVariants = isOwnerUnlimited || (!subscriptionExpired && profile?.tier === 'premium');
   const variantPolicyLabel = hasPremiumFullVariants
@@ -710,7 +740,7 @@ export default function App() {
         {
           title: hasPremiumFullVariants ? 'Premium Full Version 3' : 'Premium Preview Version 3',
           durationMode: hasPremiumFullVariants ? 'full' : 'preview',
-          direction: 'premium power voice version with bigger dynamics, wider stereo drums, and more dramatic vocal lift',
+          direction: 'premium apex vocal version with bigger dynamics, wider stereo drums, and more dramatic vocal lift',
         },
         {
           title: hasPremiumFullVariants ? 'Premium Full Version 4' : 'Premium Preview Version 4',
@@ -1646,7 +1676,7 @@ export default function App() {
                   className="rounded-full border border-zinc-800 bg-zinc-950 px-4 py-2 text-[10px] font-black text-white outline-none focus:ring-1 focus:ring-violet-500"
                 >
                   {MODEL_OPTIONS.map(model => (
-                    <option key={model.id} value={model.id}>{model.label} · Free</option>
+                    <option key={model.id} value={model.id}>{model.label} {model.level} · Free</option>
                   ))}
                 </select>
               </div>
