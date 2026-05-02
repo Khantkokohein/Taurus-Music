@@ -54,18 +54,36 @@ export const generateSongAudio = async ({
   prompt,
   genreDescription,
   arrangementDescription,
+  modelProfile,
+  lyricsText,
+  lyricsMode,
+  instrumental,
+  styleText,
+  weirdness,
+  styleInfluence,
   voice,
 }: {
   prompt: string;
   genreDescription: string;
   arrangementDescription: string;
+  modelProfile: string;
+  lyricsText: string;
+  lyricsMode: string;
+  instrumental: boolean;
+  styleText: string;
+  weirdness: number;
+  styleInfluence: number;
   voice: string;
 }) => {
   const ai = getClient();
   const fullPrompt = [
     `Create a complete, fully arranged 90-second ${genreDescription} song as an MP3 with commercial AI music platform quality.`,
     `Theme: ${prompt}.`,
+    `Model profile: ${modelProfile}.`,
+    `Style tags: ${styleText || genreDescription}.`,
     `Vocal direction: ${voice}.`,
+    `Lyrics mode: ${lyricsMode}. ${instrumental ? 'Create an instrumental track with no vocals.' : lyricsText ? `Use and adapt these lyrics naturally: ${lyricsText}.` : 'Write original lyrics when needed.'}`,
+    `Creative controls: weirdness ${weirdness}%, style influence ${styleInfluence}%.`,
     `Arrangement must follow these selected sounds: ${arrangementDescription}.`,
     'Production must feel studio-recorded: polished lead vocal, tight timing, rich stereo instrumental, clear low end, balanced drums, strong hook, radio-ready loudness, and mastered final mix.',
     'Write and perform a full singable song, not a short sample. Include intro, verse 1, pre-chorus, chorus, verse 2, bridge, final chorus, and outro where musically possible.',
@@ -107,15 +125,29 @@ export const analyzeVoiceReference = async ({
   audioBase64,
   mimeType,
   idea,
+  lyricsText,
+  lyricsMode,
+  instrumental,
+  styleText,
   genreDescription,
   arrangementDescription,
+  modelProfile,
+  weirdness,
+  styleInfluence,
   voice,
 }: {
   audioBase64: string;
   mimeType: string;
   idea: string;
+  lyricsText: string;
+  lyricsMode: string;
+  instrumental: boolean;
+  styleText: string;
   genreDescription: string;
   arrangementDescription: string;
+  modelProfile: string;
+  weirdness: number;
+  styleInfluence: number;
   voice: string;
 }) => {
   const ai = getClient();
@@ -135,9 +167,14 @@ export const analyzeVoiceReference = async ({
         {
           text: [
             `User idea: ${idea || 'No typed idea. Use the voice reference as the main melody seed.'}`,
+            `Lyrics: ${instrumental ? 'Instrumental only.' : lyricsText || 'Write original lyrics.'}`,
+            `Lyrics mode: ${lyricsMode}.`,
+            `Model profile: ${modelProfile}.`,
             `Target style: ${genreDescription || 'modern pop'}.`,
+            `Style tags: ${styleText || 'match the audio reference and selected genre'}.`,
             `Selected arrangement: ${arrangementDescription || 'full-band studio arrangement'}.`,
             `Vocal choice: ${voice || 'Duet/Pair'}.`,
+            `Creative controls: weirdness ${weirdness}%, style influence ${styleInfluence}%.`,
             'Create a prompt for a high-fidelity, radio-ready 90-second song with polished vocals, full instrumental production, clear hook, verse/chorus structure, and mastered mix.',
           ].join('\n'),
         },

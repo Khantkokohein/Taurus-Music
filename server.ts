@@ -62,7 +62,7 @@ async function startServer() {
   app.post('/api/generate-song', async (req, res) => {
     try {
       await requireFirebaseAuth(req);
-      const { prompt, genreDescription, arrangementDescription, voice } = req.body || {};
+      const { prompt, genreDescription, arrangementDescription, modelProfile, lyricsText, lyricsMode, instrumental, styleText, weirdness, styleInfluence, voice } = req.body || {};
       if (!prompt || typeof prompt !== 'string') {
         return res.status(400).json({ error: 'Prompt is required.' });
       }
@@ -71,6 +71,13 @@ async function startServer() {
         prompt: prompt.slice(0, 1200),
         genreDescription: typeof genreDescription === 'string' ? genreDescription.slice(0, 240) : 'modern pop',
         arrangementDescription: typeof arrangementDescription === 'string' ? arrangementDescription.slice(0, 500) : 'balanced full-band arrangement',
+        modelProfile: typeof modelProfile === 'string' ? modelProfile.slice(0, 300) : 'Taurus v5.5 Power Voice free-start profile',
+        lyricsText: typeof lyricsText === 'string' ? lyricsText.slice(0, 2000) : '',
+        lyricsMode: lyricsMode === 'auto' ? 'auto' : 'manual',
+        instrumental: instrumental === true,
+        styleText: typeof styleText === 'string' ? styleText.slice(0, 500) : '',
+        weirdness: typeof weirdness === 'number' ? Math.max(0, Math.min(100, weirdness)) : 50,
+        styleInfluence: typeof styleInfluence === 'number' ? Math.max(0, Math.min(100, styleInfluence)) : 50,
         voice: typeof voice === 'string' ? voice.slice(0, 120) : 'Duet/Pair',
       });
       return res.json(result);
@@ -83,7 +90,7 @@ async function startServer() {
   app.post('/api/analyze-voice', async (req, res) => {
     try {
       await requireFirebaseAuth(req);
-      const { audioBase64, mimeType, idea, genreDescription, arrangementDescription, voice } = req.body || {};
+      const { audioBase64, mimeType, idea, lyricsText, lyricsMode, instrumental, styleText, genreDescription, arrangementDescription, modelProfile, weirdness, styleInfluence, voice } = req.body || {};
       if (!audioBase64 || typeof audioBase64 !== 'string') {
         return res.status(400).json({ error: 'Voice audio is required.' });
       }
@@ -95,8 +102,15 @@ async function startServer() {
         audioBase64,
         mimeType: typeof mimeType === 'string' && mimeType.startsWith('audio/') ? mimeType.slice(0, 80) : 'audio/webm',
         idea: typeof idea === 'string' ? idea.slice(0, 1000) : '',
+        lyricsText: typeof lyricsText === 'string' ? lyricsText.slice(0, 2000) : '',
+        lyricsMode: lyricsMode === 'auto' ? 'auto' : 'manual',
+        instrumental: instrumental === true,
+        styleText: typeof styleText === 'string' ? styleText.slice(0, 500) : '',
         genreDescription: typeof genreDescription === 'string' ? genreDescription.slice(0, 240) : 'modern pop',
         arrangementDescription: typeof arrangementDescription === 'string' ? arrangementDescription.slice(0, 500) : 'full-band studio arrangement',
+        modelProfile: typeof modelProfile === 'string' ? modelProfile.slice(0, 300) : 'Taurus v5.5 Power Voice free-start profile',
+        weirdness: typeof weirdness === 'number' ? Math.max(0, Math.min(100, weirdness)) : 50,
+        styleInfluence: typeof styleInfluence === 'number' ? Math.max(0, Math.min(100, styleInfluence)) : 50,
         voice: typeof voice === 'string' ? voice.slice(0, 120) : 'Duet/Pair',
       });
 

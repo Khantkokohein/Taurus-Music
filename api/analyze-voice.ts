@@ -42,15 +42,29 @@ const analyzeVoiceReference = async ({
   audioBase64,
   mimeType,
   idea,
+  lyricsText,
+  lyricsMode,
+  instrumental,
+  styleText,
   genreDescription,
   arrangementDescription,
+  modelProfile,
+  weirdness,
+  styleInfluence,
   voice,
 }: {
   audioBase64: string;
   mimeType: string;
   idea: string;
+  lyricsText: string;
+  lyricsMode: string;
+  instrumental: boolean;
+  styleText: string;
   genreDescription: string;
   arrangementDescription: string;
+  modelProfile: string;
+  weirdness: number;
+  styleInfluence: number;
   voice: string;
 }) => {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
@@ -76,9 +90,14 @@ const analyzeVoiceReference = async ({
         {
           text: [
             `User idea: ${idea || 'No typed idea. Use the voice reference as the main melody seed.'}`,
+            `Lyrics: ${instrumental ? 'Instrumental only.' : lyricsText || 'Write original lyrics.'}`,
+            `Lyrics mode: ${lyricsMode}.`,
+            `Model profile: ${modelProfile}.`,
             `Target style: ${genreDescription || 'modern pop'}.`,
+            `Style tags: ${styleText || 'match the audio reference and selected genre'}.`,
             `Selected arrangement: ${arrangementDescription || 'full-band studio arrangement'}.`,
             `Vocal choice: ${voice || 'Duet/Pair'}.`,
+            `Creative controls: weirdness ${weirdness}%, style influence ${styleInfluence}%.`,
             'Create a prompt for a high-fidelity, radio-ready 90-second song with polished vocals, full instrumental production, clear hook, verse/chorus structure, and mastered mix.',
           ].join('\n'),
         },
@@ -107,8 +126,15 @@ export default async function handler(req: any, res: any) {
       audioBase64,
       mimeType,
       idea,
+      lyricsText,
+      lyricsMode,
+      instrumental,
+      styleText,
       genreDescription,
       arrangementDescription,
+      modelProfile,
+      weirdness,
+      styleInfluence,
       voice,
     } = req.body || {};
 
@@ -128,8 +154,15 @@ export default async function handler(req: any, res: any) {
       audioBase64,
       mimeType: safeMimeType,
       idea: typeof idea === 'string' ? idea.slice(0, 1000) : '',
+      lyricsText: typeof lyricsText === 'string' ? lyricsText.slice(0, 2000) : '',
+      lyricsMode: lyricsMode === 'auto' ? 'auto' : 'manual',
+      instrumental: instrumental === true,
+      styleText: typeof styleText === 'string' ? styleText.slice(0, 500) : '',
       genreDescription: typeof genreDescription === 'string' ? genreDescription.slice(0, 240) : 'modern pop',
       arrangementDescription: typeof arrangementDescription === 'string' ? arrangementDescription.slice(0, 500) : 'full-band studio arrangement',
+      modelProfile: typeof modelProfile === 'string' ? modelProfile.slice(0, 300) : 'Taurus v5.5 Power Voice free-start profile',
+      weirdness: typeof weirdness === 'number' ? Math.max(0, Math.min(100, weirdness)) : 50,
+      styleInfluence: typeof styleInfluence === 'number' ? Math.max(0, Math.min(100, styleInfluence)) : 50,
       voice: typeof voice === 'string' ? voice.slice(0, 120) : 'Duet/Pair',
     });
 

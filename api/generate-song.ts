@@ -27,11 +27,25 @@ const generateSongAudio = async ({
   prompt,
   genreDescription,
   arrangementDescription,
+  modelProfile,
+  lyricsText,
+  lyricsMode,
+  instrumental,
+  styleText,
+  weirdness,
+  styleInfluence,
   voice,
 }: {
   prompt: string;
   genreDescription: string;
   arrangementDescription: string;
+  modelProfile: string;
+  lyricsText: string;
+  lyricsMode: string;
+  instrumental: boolean;
+  styleText: string;
+  weirdness: number;
+  styleInfluence: number;
   voice: string;
 }) => {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
@@ -44,7 +58,11 @@ const generateSongAudio = async ({
   const fullPrompt = [
     `Create a complete, fully arranged 90-second ${genreDescription} song as an MP3 with commercial AI music platform quality.`,
     `Theme: ${prompt}.`,
+    `Model profile: ${modelProfile}.`,
+    `Style tags: ${styleText || genreDescription}.`,
     `Vocal direction: ${voice}.`,
+    `Lyrics mode: ${lyricsMode}. ${instrumental ? 'Create an instrumental track with no vocals.' : lyricsText ? `Use and adapt these lyrics naturally: ${lyricsText}.` : 'Write original lyrics when needed.'}`,
+    `Creative controls: weirdness ${weirdness}%, style influence ${styleInfluence}%.`,
     `Arrangement must follow these selected sounds: ${arrangementDescription}.`,
     'Production must feel studio-recorded: polished lead vocal, tight timing, rich stereo instrumental, clear low end, balanced drums, strong hook, radio-ready loudness, and mastered final mix.',
     'Write and perform a full singable song, not a short sample. Include intro, verse 1, pre-chorus, chorus, verse 2, bridge, final chorus, and outro where musically possible.',
@@ -90,7 +108,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     await requireFirebaseAuth(req);
-    const { prompt, genreDescription, arrangementDescription, voice } = req.body || {};
+    const { prompt, genreDescription, arrangementDescription, modelProfile, lyricsText, lyricsMode, instrumental, styleText, weirdness, styleInfluence, voice } = req.body || {};
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ error: 'Prompt is required.' });
     }
@@ -99,6 +117,13 @@ export default async function handler(req: any, res: any) {
       prompt: prompt.slice(0, 1200),
       genreDescription: typeof genreDescription === 'string' ? genreDescription.slice(0, 240) : 'modern pop',
       arrangementDescription: typeof arrangementDescription === 'string' ? arrangementDescription.slice(0, 500) : 'balanced full-band arrangement',
+      modelProfile: typeof modelProfile === 'string' ? modelProfile.slice(0, 300) : 'Taurus v5.5 Power Voice free-start profile',
+      lyricsText: typeof lyricsText === 'string' ? lyricsText.slice(0, 2000) : '',
+      lyricsMode: lyricsMode === 'auto' ? 'auto' : 'manual',
+      instrumental: instrumental === true,
+      styleText: typeof styleText === 'string' ? styleText.slice(0, 500) : '',
+      weirdness: typeof weirdness === 'number' ? Math.max(0, Math.min(100, weirdness)) : 50,
+      styleInfluence: typeof styleInfluence === 'number' ? Math.max(0, Math.min(100, styleInfluence)) : 50,
       voice: typeof voice === 'string' ? voice.slice(0, 120) : 'Duet/Pair',
     });
 

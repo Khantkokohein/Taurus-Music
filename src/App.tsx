@@ -151,6 +151,30 @@ const INSTRUMENT_OPTIONS = [
   { id: 'Myanmar Percussion', description: 'tasteful Myanmar percussion accents' },
 ];
 
+const MODEL_OPTIONS = [
+  { id: 'v55-power', label: 'v5.5 Power', detail: 'Power voice, custom styles, studio control' },
+  { id: 'v5-pro', label: 'v5 Pro', detail: 'Authentic vocals and superior audio control' },
+  { id: 'v45-plus', label: 'v4.5+', detail: 'Advanced creation methods' },
+  { id: 'v45-all', label: 'v4.5-all', detail: 'Best free model' },
+  { id: 'v4-studio', label: 'v4 Studio', detail: 'Improved sound quality' },
+];
+
+const STYLE_PRESETS = [
+  'rhythmic complexity',
+  'ethereal neo soul',
+  'synth stabs',
+  'new rock',
+  'jangle pop',
+  'power voice',
+  'cinematic hook',
+];
+
+const VOCAL_GENDER_OPTIONS = [
+  { label: 'Male', value: 'Male Power Voice' },
+  { label: 'Female', value: 'Female Power Voice' },
+  { label: 'Duet', value: 'Duet/Pair Power Voice' },
+];
+
 const VOICES = {
   male: ['Male Edge', 'Male Deep', 'Male High', 'Male Soul', 'Male Smooth'],
   female: ['Female Eager', 'Female Soft', 'Female Power', 'Female Soul', 'Female Pop'],
@@ -200,7 +224,15 @@ export default function App() {
   const [idea, setIdea] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('Pop Essence');
   const [selectedInstruments, setSelectedInstruments] = useState<string[]>(['Piano', 'Bass Boost']);
-  const [selectedVoice, setSelectedVoice] = useState('Duet/Pair');
+  const [selectedVoice, setSelectedVoice] = useState('Duet/Pair Power Voice');
+  const [selectedModel, setSelectedModel] = useState('v55-power');
+  const [creationMode, setCreationMode] = useState<'simple' | 'advanced'>('advanced');
+  const [lyricsText, setLyricsText] = useState('');
+  const [lyricsMode, setLyricsMode] = useState<'manual' | 'auto'>('manual');
+  const [instrumental, setInstrumental] = useState(false);
+  const [styleText, setStyleText] = useState('rhythmic complexity, ethereal neo soul, synth stabs, new rock, jangle pop');
+  const [weirdness, setWeirdness] = useState(50);
+  const [styleInfluence, setStyleInfluence] = useState(50);
   const [optimizedPrompt, setOptimizedPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
@@ -250,18 +282,21 @@ export default function App() {
   const quotaName = isOwnerUnlimited ? 'Owner Unlimited' : `${activePlan.name} Quota`;
   const weeklyQuotaLabel = isOwnerUnlimited ? 'Unlimited' : `${weeklyRemaining} / ${profileWeeklyLimit} week`;
   const monthlyQuotaLabel = isOwnerUnlimited ? 'Unlimited' : `${monthlyRemaining} / ${profileMonthlyLimit}`;
-  const needsVoiceUpgrade = !isOwnerUnlimited && (profile?.tier === 'free' || !profile?.tier);
   const isAdminUser = isOwnerUnlimited || profile?.role === 'admin';
   const selectedTierPlan = TIERS.find(tier => tier.id === selectedTier) || TIERS[0];
   const selectedInstrumentSummary = selectedInstruments.length > 0 ? selectedInstruments.join(', ') : 'Auto arrangement';
-  const hasGenerationPrompt = Boolean((optimizedPrompt || idea).trim());
+  const selectedModelProfile = MODEL_OPTIONS.find(model => model.id === selectedModel) || MODEL_OPTIONS[0];
+  const hasGenerationPrompt = Boolean((optimizedPrompt || idea || lyricsText || styleText).trim() || voiceFile);
   const genreDescription = GENRE_OPTIONS.find(genre => genre.id === selectedGenre)?.description || selectedGenre;
+  const styleTags = styleText.split(',').map(tag => tag.trim()).filter(Boolean);
   const arrangementDescription = selectedInstruments.length > 0
     ? INSTRUMENT_OPTIONS
         .filter(instrument => selectedInstruments.includes(instrument.id))
         .map(instrument => `${instrument.id}: ${instrument.description}`)
         .join('; ')
     : 'Let Taurus AI choose the best complete arrangement.';
+  const modelProfile = `${selectedModelProfile.label}: ${selectedModelProfile.detail}. Free-start access enabled.`;
+  const needsVoiceUpgrade = false;
 
   const toggleInstrument = (instrumentId: string) => {
     setSelectedInstruments(prev => (
@@ -573,8 +608,15 @@ export default function App() {
         audioBase64,
         mimeType: voiceFile.type || 'audio/webm',
         idea,
+        lyricsText,
+        lyricsMode,
+        instrumental,
+        styleText,
         genreDescription,
         arrangementDescription,
+        modelProfile,
+        weirdness,
+        styleInfluence,
         voice: selectedVoice,
       });
 
@@ -622,7 +664,7 @@ export default function App() {
       return;
     }
 
-    const finalPrompt = optimizedPrompt || idea;
+    const finalPrompt = optimizedPrompt || idea || lyricsText || styleText || 'Create a full studio song.';
     if (!finalPrompt.trim()) return;
     
     setIsGenerating(true);
@@ -648,6 +690,13 @@ export default function App() {
         prompt: finalPrompt,
         genreDescription,
         arrangementDescription,
+        modelProfile,
+        lyricsText,
+        lyricsMode,
+        instrumental,
+        styleText,
+        weirdness,
+        styleInfluence,
         voice: selectedVoice,
       });
 
@@ -677,7 +726,7 @@ export default function App() {
 
       const newSong = {
         id: newSongId,
-        idea,
+        idea: idea || lyricsText || styleText || 'Studio track',
         prompt: finalPrompt,
         audioUrl: uploadedAudio.audioUrl,
         storagePath: uploadedAudio.storagePath,
@@ -1449,7 +1498,7 @@ export default function App() {
           </div>
         </header>
 
-        <div className="flex-1 flex flex-col items-center justify-between lg:justify-center p-4 lg:p-12 min-h-0 relative overflow-hidden">
+        <div className="flex-1 flex flex-col items-center justify-between lg:justify-center p-4 lg:p-12 min-h-0 relative overflow-visible">
           <div className="max-w-2xl w-full text-center mb-3 lg:mb-6 relative z-10 shrink-0">
             <motion.h2 
               initial={{ opacity: 0, y: 20 }}
@@ -1536,7 +1585,61 @@ export default function App() {
 
           <div className="w-full max-w-4xl bg-zinc-900 border border-zinc-800 rounded-2xl lg:rounded-[2.5rem] p-1 lg:p-3 shadow-[0_30px_100px_rgba(0,0,0,0.8)] relative z-10 flex flex-col min-h-0 mb-2 lg:mb-0">
             <div className="flex flex-col min-h-0">
-              <div className="px-4 lg:px-10 pt-1.5 lg:pt-8 flex gap-3 lg:gap-6 shrink-0">
+              <div className="px-4 lg:px-10 pt-4 lg:pt-6 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                <div className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950 px-4 py-2 text-xs font-black text-white">
+                  <Music size={13} />
+                  {profile?.points || 0}
+                </div>
+                <div className="inline-flex rounded-full border border-zinc-800 bg-zinc-950 p-1 text-[10px] font-black">
+                  {(['simple', 'advanced'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setCreationMode(mode)}
+                      className={`rounded-full px-3 py-1.5 capitalize transition-all ${creationMode === mode ? 'bg-zinc-100 text-black' : 'text-zinc-400 hover:text-white'}`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+                <select
+                  value={selectedModel}
+                  onChange={(event) => setSelectedModel(event.target.value)}
+                  className="rounded-full border border-zinc-800 bg-zinc-950 px-4 py-2 text-[10px] font-black text-white outline-none focus:ring-1 focus:ring-violet-500"
+                >
+                  {MODEL_OPTIONS.map(model => (
+                    <option key={model.id} value={model.id}>{model.label} · Free</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="mx-4 lg:mx-10 mt-4 rounded-3xl border border-zinc-800 bg-zinc-950/55 p-4 lg:p-5">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <p className="text-xs font-bold text-white">Song Description</p>
+                  <button
+                    type="button"
+                    onClick={() => setInstrumental(prev => !prev)}
+                    className={`rounded-full border px-3 py-1.5 text-[10px] font-black transition-all ${instrumental ? 'border-emerald-500/30 bg-emerald-500/15 text-emerald-200' : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white'}`}
+                  >
+                    Instrumental
+                  </button>
+                </div>
+                <textarea
+                  value={idea}
+                  onChange={(e) => setIdea(e.target.value)}
+                  className="h-24 w-full resize-none bg-transparent text-base text-white placeholder-zinc-700 outline-none custom-scrollbar lg:h-32 lg:text-xl"
+                  placeholder="Aggressive jazz song about a love that didn't translate"
+                ></textarea>
+                <div className="mt-3 flex flex-wrap gap-2 border-t border-zinc-800 pt-3">
+                  {[selectedGenre, ...styleTags].slice(0, 8).map(tag => (
+                    <span key={tag} className="rounded-full bg-zinc-800 px-3 py-1.5 text-[10px] font-bold text-white">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="hidden">
                 <div className="flex-1">
                   <p className="text-[8px] lg:text-[10px] text-zinc-500 uppercase font-black tracking-widest mb-0.5 lg:mb-3">Artist Gender/Style</p>
                   <select 
@@ -1609,10 +1712,111 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              {creationMode === 'advanced' && (
+                <div className="mx-4 lg:mx-10 mt-3 grid gap-3">
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-950/55 p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <p className="text-xs font-bold text-white">Lyrics</p>
+                      <Sparkles size={16} className="text-zinc-500" />
+                    </div>
+                    <textarea
+                      value={lyricsText}
+                      onChange={(event) => setLyricsText(event.target.value)}
+                      disabled={instrumental}
+                      className="h-24 w-full resize-none bg-transparent text-sm text-white placeholder-zinc-700 outline-none custom-scrollbar disabled:opacity-40"
+                      placeholder="Write lyrics or leave blank for instrumental"
+                    ></textarea>
+                  </div>
+
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-950/55 p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <p className="text-xs font-bold text-white">Styles</p>
+                      <button
+                        type="button"
+                        onClick={() => setStyleText([...STYLE_PRESETS].sort(() => Math.random() - 0.5).slice(0, 5).join(', '))}
+                        className="rounded-full bg-violet-600 px-3 py-1.5 text-[10px] font-black text-white hover:bg-violet-500"
+                      >
+                        Magic
+                      </button>
+                    </div>
+                    <textarea
+                      value={styleText}
+                      onChange={(event) => setStyleText(event.target.value)}
+                      className="h-16 w-full resize-none bg-transparent text-sm text-zinc-300 placeholder-zinc-700 outline-none custom-scrollbar"
+                      placeholder="rhythmic complexity, ethereal neo soul, synth stabs"
+                    ></textarea>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {STYLE_PRESETS.slice(0, 5).map(tag => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => setStyleText(prev => prev.includes(tag) ? prev : `${prev ? `${prev}, ` : ''}${tag}`)}
+                          className="rounded-full bg-zinc-800 px-3 py-1.5 text-[10px] font-bold text-white hover:bg-zinc-700"
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-950/55 p-4">
+                    <p className="mb-3 text-xs font-bold text-white">More Options</p>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between rounded-xl bg-zinc-950 p-3">
+                        <span className="text-[10px] font-bold text-white">Vocal Gender</span>
+                        <div className="flex gap-1">
+                          {VOCAL_GENDER_OPTIONS.map(option => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => setSelectedVoice(option.value)}
+                              className={`rounded-lg px-3 py-1.5 text-[10px] font-bold transition-all ${selectedVoice === option.value ? 'bg-zinc-100 text-black' : 'text-zinc-500 hover:text-white'}`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between rounded-xl bg-zinc-950 p-3">
+                        <span className="text-[10px] font-bold text-white">Lyrics Mode</span>
+                        <div className="flex gap-1">
+                          {(['manual', 'auto'] as const).map(mode => (
+                            <button
+                              key={mode}
+                              type="button"
+                              onClick={() => setLyricsMode(mode)}
+                              className={`rounded-lg px-3 py-1.5 text-[10px] font-bold capitalize transition-all ${lyricsMode === mode ? 'bg-zinc-100 text-black' : 'text-zinc-500 hover:text-white'}`}
+                            >
+                              {mode}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {[
+                        { label: 'Weirdness', value: weirdness, setter: setWeirdness },
+                        { label: 'Style Influence', value: styleInfluence, setter: setStyleInfluence },
+                      ].map(control => (
+                        <label key={control.label} className="flex items-center gap-3 rounded-xl bg-zinc-950 p-3">
+                          <span className="w-28 text-[10px] font-bold text-white">{control.label}</span>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={control.value}
+                            onChange={(event) => control.setter(Number(event.target.value))}
+                            className="flex-1 accent-fuchsia-500"
+                          />
+                          <span className="w-10 text-right text-[10px] font-black text-white">{control.value}%</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
               <textarea 
                 value={idea}
                 onChange={(e) => setIdea(e.target.value)}
-                className="w-full bg-transparent p-4 lg:p-10 text-lg lg:text-3xl text-white placeholder-zinc-800 focus:outline-none resize-none h-24 lg:h-60 custom-scrollbar font-display leading-tight flex-1"
+                className="hidden"
                 placeholder="Ex. A power ballad with emotional female vocals about heartbreak..."
               ></textarea>
               
