@@ -42,10 +42,11 @@ const generateSongAudio = async ({
   const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey });
   const fullPrompt = [
-    `Create a complete, fully arranged 90-second ${genreDescription} song as an MP3.`,
+    `Create a complete, fully arranged 90-second ${genreDescription} song as an MP3 with commercial AI music platform quality.`,
     `Theme: ${prompt}.`,
     `Vocal direction: ${voice}.`,
     `Arrangement must follow these selected sounds: ${arrangementDescription}.`,
+    'Production must feel studio-recorded: polished lead vocal, tight timing, rich stereo instrumental, clear low end, balanced drums, strong hook, radio-ready loudness, and mastered final mix.',
     'Write and perform a full singable song, not a short sample. Include intro, verse 1, pre-chorus, chorus, verse 2, bridge, final chorus, and outro where musically possible.',
     'Lyrics must be complete, natural to sing, and match the user language when clear. Return the full lyrics/structure text and the MP3 audio.',
   ].join(' ');

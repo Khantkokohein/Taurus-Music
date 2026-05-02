@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 
 const TEXT_MODEL = 'gemini-3-flash-preview';
 const LYRIA_MODEL = 'lyria-3-pro-preview';
+const VOICE_MODEL = process.env.GEMINI_VOICE_MODEL || 'gemini-2.5-flash';
 
 const getGeminiApiKey = () => process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
 
@@ -52,18 +53,23 @@ export const generateChatReply = async ({
 export const generateSongAudio = async ({
   prompt,
   genreDescription,
+  arrangementDescription,
   voice,
 }: {
   prompt: string;
   genreDescription: string;
+  arrangementDescription: string;
   voice: string;
 }) => {
   const ai = getClient();
   const fullPrompt = [
-    `Create a polished 90-second ${genreDescription} song as an MP3.`,
+    `Create a complete, fully arranged 90-second ${genreDescription} song as an MP3 with commercial AI music platform quality.`,
     `Theme: ${prompt}.`,
     `Vocal direction: ${voice}.`,
-    'Include a clear intro, verse, chorus, and outro. Return the generated lyrics or structure text and the MP3 audio.',
+    `Arrangement must follow these selected sounds: ${arrangementDescription}.`,
+    'Production must feel studio-recorded: polished lead vocal, tight timing, rich stereo instrumental, clear low end, balanced drums, strong hook, radio-ready loudness, and mastered final mix.',
+    'Write and perform a full singable song, not a short sample. Include intro, verse 1, pre-chorus, chorus, verse 2, bridge, final chorus, and outro where musically possible.',
+    'Lyrics must be complete, natural to sing, and match the user language when clear. Return the full lyrics/structure text and the MP3 audio.',
   ].join(' ');
 
   const result = await ai.models.generateContent({
@@ -95,4 +101,55 @@ export const generateSongAudio = async ({
     lyrics: lyrics.join('\n\n') || 'Lyrics not generated for this track.',
     model: LYRIA_MODEL,
   };
+};
+
+export const analyzeVoiceReference = async ({
+  audioBase64,
+  mimeType,
+  idea,
+  genreDescription,
+  arrangementDescription,
+  voice,
+}: {
+  audioBase64: string;
+  mimeType: string;
+  idea: string;
+  genreDescription: string;
+  arrangementDescription: string;
+  voice: string;
+}) => {
+  const ai = getClient();
+  const response = await ai.models.generateContent({
+    model: VOICE_MODEL,
+    config: {
+      systemInstruction: [
+        'You are a senior studio producer turning rough vocal or humming references into music-generation prompts.',
+        'Analyze melody contour, phrasing, language, emotional tone, tempo feel, vocal energy, and hook shape.',
+        'Do not claim to clone the singer voice. Create a polished commercial studio arrangement direction.',
+        'Return ONLY one complete prompt under 900 characters.',
+      ].join(' '),
+    },
+    contents: [{
+      role: 'user',
+      parts: [
+        {
+          text: [
+            `User idea: ${idea || 'No typed idea. Use the voice reference as the main melody seed.'}`,
+            `Target style: ${genreDescription || 'modern pop'}.`,
+            `Selected arrangement: ${arrangementDescription || 'full-band studio arrangement'}.`,
+            `Vocal choice: ${voice || 'Duet/Pair'}.`,
+            'Create a prompt for a high-fidelity, radio-ready 90-second song with polished vocals, full instrumental production, clear hook, verse/chorus structure, and mastered mix.',
+          ].join('\n'),
+        },
+        {
+          inlineData: {
+            mimeType,
+            data: audioBase64,
+          },
+        },
+      ],
+    }],
+  } as any);
+
+  return response.text?.replace(/^["']|["']$/g, '').replace(/\s+/g, ' ').trim() || '';
 };

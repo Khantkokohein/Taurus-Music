@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Music, 
@@ -180,6 +180,20 @@ const postJson = async <T,>(url: string, body: Record<string, unknown>): Promise
   return payload as T;
 };
 
+const fileToBase64 = (file: Blob) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onloadend = () => {
+    const result = reader.result;
+    if (typeof result !== 'string') {
+      reject(new Error('Audio file could not be read.'));
+      return;
+    }
+    resolve(result.split(',')[1] || '');
+  };
+  reader.onerror = () => reject(new Error('Audio file could not be read.'));
+  reader.readAsDataURL(file);
+});
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -190,6 +204,8 @@ export default function App() {
   const [optimizedPrompt, setOptimizedPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [isAnalyzingVoice, setIsAnalyzingVoice] = useState(false);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [isSoundChooserOpen, setIsSoundChooserOpen] = useState(false);
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
   const [history, setHistory] = useState<Song[]>([]);
@@ -212,6 +228,11 @@ export default function App() {
   const [searchEmail, setSearchEmail] = useState('');
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [newCredits, setNewCredits] = useState<number>(0);
+  const [voiceFile, setVoiceFile] = useState<File | null>(null);
+  const [voicePreviewUrl, setVoicePreviewUrl] = useState('');
+  const voiceRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceChunksRef = useRef<Blob[]>([]);
+  const voiceStreamRef = useRef<MediaStream | null>(null);
   const isOwnerUnlimited = isOwnerEmail(user?.email) || isOwnerProfile(profile);
   const accountBanUntil = getBanUntilMillis(profile);
   const isAccountBanned = !isOwnerUnlimited && accountBanUntil > Date.now();
@@ -233,6 +254,14 @@ export default function App() {
   const isAdminUser = isOwnerUnlimited || profile?.role === 'admin';
   const selectedTierPlan = TIERS.find(tier => tier.id === selectedTier) || TIERS[0];
   const selectedInstrumentSummary = selectedInstruments.length > 0 ? selectedInstruments.join(', ') : 'Auto arrangement';
+  const hasGenerationPrompt = Boolean((optimizedPrompt || idea).trim());
+  const genreDescription = GENRE_OPTIONS.find(genre => genre.id === selectedGenre)?.description || selectedGenre;
+  const arrangementDescription = selectedInstruments.length > 0
+    ? INSTRUMENT_OPTIONS
+        .filter(instrument => selectedInstruments.includes(instrument.id))
+        .map(instrument => `${instrument.id}: ${instrument.description}`)
+        .join('; ')
+    : 'Let Taurus AI choose the best complete arrangement.';
 
   const toggleInstrument = (instrumentId: string) => {
     setSelectedInstruments(prev => (
@@ -344,6 +373,24 @@ export default function App() {
     audio.load();
   }, [audio, currentSong?.id]);
 
+  useEffect(() => {
+    if (!voiceFile) {
+      setVoicePreviewUrl('');
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(voiceFile);
+    setVoicePreviewUrl(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [voiceFile]);
+
+  useEffect(() => () => {
+    if (voiceRecorderRef.current?.state === 'recording') {
+      voiceRecorderRef.current.stop();
+    }
+    voiceStreamRef.current?.getTracks().forEach(track => track.stop());
+  }, []);
+
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const time = parseFloat(e.target.value);
     audio.currentTime = time;
@@ -427,6 +474,123 @@ export default function App() {
     }
   };
 
+  const stopVoiceStream = () => {
+    voiceStreamRef.current?.getTracks().forEach(track => track.stop());
+    voiceStreamRef.current = null;
+  };
+
+  const startVoiceRecording = async () => {
+    if (!user) {
+      setError("Please login with Gmail to record voice.");
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setError("Voice recording is not supported in this browser. Upload an audio file instead.");
+      return;
+    }
+
+    try {
+      setError(null);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      const recorderOptions = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? { mimeType: 'audio/webm;codecs=opus' }
+        : undefined;
+      const recorder = new MediaRecorder(stream, recorderOptions);
+      voiceStreamRef.current = stream;
+      voiceChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          voiceChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        const mimeType = recorder.mimeType || 'audio/webm';
+        const blob = new Blob(voiceChunksRef.current, { type: mimeType });
+        if (blob.size > 0) {
+          setVoiceFile(new File([blob], `taurus-voice-${Date.now()}.webm`, { type: mimeType }));
+        }
+        setIsRecordingVoice(false);
+        stopVoiceStream();
+      };
+      voiceRecorderRef.current = recorder;
+      recorder.start();
+      setIsRecordingVoice(true);
+    } catch (err: any) {
+      stopVoiceStream();
+      setIsRecordingVoice(false);
+      setError(err.message || "Microphone permission failed.");
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    const recorder = voiceRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop();
+    }
+  };
+
+  const handleVoiceFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (!file.type.startsWith('audio/')) {
+      setError("Please upload an audio file.");
+      return;
+    }
+
+    if (file.size > 12 * 1024 * 1024) {
+      setError("Voice reference must be under 12 MB.");
+      return;
+    }
+
+    setError(null);
+    setVoiceFile(file);
+  };
+
+  const handleAnalyzeVoice = async () => {
+    if (!user) {
+      setError("Please login with Gmail to use Voice Studio.");
+      return;
+    }
+    if (!voiceFile) {
+      setError("Record or upload your voice first.");
+      return;
+    }
+
+    setIsAnalyzingVoice(true);
+    setError(null);
+    try {
+      const audioBase64 = await fileToBase64(voiceFile);
+      const response = await postJson<{ prompt: string }>('/api/analyze-voice', {
+        audioBase64,
+        mimeType: voiceFile.type || 'audio/webm',
+        idea,
+        genreDescription,
+        arrangementDescription,
+        voice: selectedVoice,
+      });
+
+      if (response.prompt) {
+        setOptimizedPrompt(response.prompt);
+        if (!idea.trim()) {
+          setIdea('Voice reference studio arrangement');
+        }
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to analyze voice.');
+    } finally {
+      setIsAnalyzingVoice(false);
+    }
+  };
+
   const handleOptimize = async () => {
     if (!idea.trim()) return;
     if (!user) {
@@ -476,13 +640,6 @@ export default function App() {
         throw new Error(`Song limit reached. Weekly left: ${access.weeklyRemaining || 0}, monthly left: ${access.monthlyRemaining || 0}.`);
       }
 
-      const genreDescription = GENRE_OPTIONS.find(genre => genre.id === selectedGenre)?.description || selectedGenre;
-      const arrangementDescription = selectedInstruments.length > 0
-        ? INSTRUMENT_OPTIONS
-            .filter(instrument => selectedInstruments.includes(instrument.id))
-            .map(instrument => `${instrument.id}: ${instrument.description}`)
-            .join('; ')
-        : 'Let Taurus AI choose the best complete arrangement.';
       const generation = await postJson<{
         audioBase64: string;
         mimeType: string;
@@ -1394,16 +1551,62 @@ export default function App() {
                     }}
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-lg lg:rounded-2xl p-1 lg:p-3 text-[9px] lg:text-xs text-white focus:ring-1 focus:ring-violet-500 outline-none"
                   >
-                    <optgroup label={`Male Voices ${(profile?.tier === 'free' || !profile?.tier) ? '🔒 (Upgrade)' : ''}`} className={`bg-zinc-900 ${(profile?.tier === 'free' || !profile?.tier) ? 'text-zinc-500' : 'text-white'}`}>
+                    <optgroup label={`Male Voices ${needsVoiceUpgrade ? '🔒 (Upgrade)' : ''}`} className={`bg-zinc-900 ${needsVoiceUpgrade ? 'text-zinc-500' : 'text-white'}`}>
                       {VOICES.male.map(v => <option key={v} value={v}>{v}</option>)}
                     </optgroup>
-                    <optgroup label={`Female Voices ${(profile?.tier === 'free' || !profile?.tier) ? '🔒 (Upgrade)' : ''}`} className={`bg-zinc-900 ${(profile?.tier === 'free' || !profile?.tier) ? 'text-zinc-500' : 'text-white'}`}>
+                    <optgroup label={`Female Voices ${needsVoiceUpgrade ? '🔒 (Upgrade)' : ''}`} className={`bg-zinc-900 ${needsVoiceUpgrade ? 'text-zinc-500' : 'text-white'}`}>
                       {VOICES.female.map(v => <option key={v} value={v}>{v}</option>)}
                     </optgroup>
                     <optgroup label="Collaborations" className="bg-zinc-900 text-white">
                       {VOICES.other.map(v => <option key={v} value={v}>{v}</option>)}
                     </optgroup>
                   </select>
+                </div>
+              </div>
+              <div className="mx-4 lg:mx-10 mt-3 rounded-2xl border border-zinc-800 bg-zinc-950/55 p-3 lg:p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[9px] lg:text-[10px] font-black uppercase tracking-widest text-violet-300">Voice Studio</p>
+                    <p className="truncate text-[10px] text-zinc-500">{voiceFile ? voiceFile.name : 'Record or upload vocal reference'}</p>
+                  </div>
+                  {voicePreviewUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setVoiceFile(null)}
+                      className="rounded-lg p-2 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+                      title="Remove voice reference"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+                {voicePreviewUrl && (
+                  <audio controls src={voicePreviewUrl} className="mb-3 h-8 w-full" />
+                )}
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <button
+                    type="button"
+                    onClick={isRecordingVoice ? stopVoiceRecording : startVoiceRecording}
+                    disabled={isAnalyzingVoice}
+                    className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 ${isRecordingVoice ? 'border-red-500/30 bg-red-500/15 text-red-200' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:text-white'}`}
+                  >
+                    <Mic2 size={14} />
+                    {isRecordingVoice ? 'Stop' : 'Record'}
+                  </button>
+                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-zinc-300 transition-all hover:text-white">
+                    <Upload size={14} />
+                    Upload
+                    <input type="file" accept="audio/*" onChange={handleVoiceFileChange} className="hidden" />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAnalyzeVoice}
+                    disabled={!voiceFile || isAnalyzingVoice || isRecordingVoice}
+                    className="flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white transition-all hover:bg-violet-500 disabled:opacity-50"
+                  >
+                    {isAnalyzingVoice ? <RotateCcw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                    {isAnalyzingVoice ? 'Analyzing' : 'Make Studio Prompt'}
+                  </button>
                 </div>
               </div>
               <textarea 
@@ -1446,7 +1649,7 @@ export default function App() {
                 </div>
                 <button 
                   onClick={handleGenerate}
-                  disabled={isGenerating || !idea || isAccountBanned}
+                  disabled={isGenerating || !hasGenerationPrompt || isAccountBanned}
                   className="w-full sm:w-auto px-6 lg:px-14 py-3 lg:py-5 rounded-xl lg:rounded-[2rem] bg-indigo-600 hover:bg-indigo-500 text-white font-black text-sm lg:text-lg flex items-center justify-center gap-3 lg:gap-4 shadow-2xl shadow-indigo-600/30 transition-all active:scale-95 disabled:opacity-50"
                 >
                   <span>{isAccountBanned ? 'Account Banned' : isGenerating ? 'Synthesizing...' : 'Generate Symphony'}</span>
