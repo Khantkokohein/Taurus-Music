@@ -62,7 +62,7 @@ async function startServer() {
   app.post('/api/generate-song', async (req, res) => {
     try {
       await requireFirebaseAuth(req);
-      const { prompt, genreDescription, arrangementDescription, modelProfile, lyricsText, lyricsMode, instrumental, styleText, weirdness, styleInfluence, voice } = req.body || {};
+      const { prompt, genreDescription, arrangementDescription, modelProfile, lyricsText, lyricsMode, instrumental, styleText, weirdness, styleInfluence, durationMode, variantLabel, voice } = req.body || {};
       if (!prompt || typeof prompt !== 'string') {
         return res.status(400).json({ error: 'Prompt is required.' });
       }
@@ -78,6 +78,8 @@ async function startServer() {
         styleText: typeof styleText === 'string' ? styleText.slice(0, 500) : '',
         weirdness: typeof weirdness === 'number' ? Math.max(0, Math.min(100, weirdness)) : 50,
         styleInfluence: typeof styleInfluence === 'number' ? Math.max(0, Math.min(100, styleInfluence)) : 50,
+        durationMode: durationMode === 'preview' ? 'preview' : 'full',
+        variantLabel: typeof variantLabel === 'string' ? variantLabel.slice(0, 120) : 'main version',
         voice: typeof voice === 'string' ? voice.slice(0, 120) : 'Duet/Pair',
       });
       return res.json(result);

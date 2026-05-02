@@ -218,6 +218,16 @@ const fileToBase64 = (file: Blob) => new Promise<string>((resolve, reject) => {
   reader.readAsDataURL(file);
 });
 
+const audioBase64ToBlob = (audioBase64: string, mimeType?: string) => {
+  const binary = atob(audioBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const safeMimeType = mimeType && mimeType !== 'application/octet-stream' ? mimeType : 'audio/mpeg';
+  return new Blob([bytes], { type: safeMimeType });
+};
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -297,6 +307,10 @@ export default function App() {
     : 'Let Taurus AI choose the best complete arrangement.';
   const modelProfile = `${selectedModelProfile.label}: ${selectedModelProfile.detail}. Free-start access enabled.`;
   const needsVoiceUpgrade = false;
+  const hasPremiumFullVariants = isOwnerUnlimited || (!subscriptionExpired && profile?.tier === 'premium');
+  const variantPolicyLabel = hasPremiumFullVariants
+    ? '4 full versions enabled'
+    : '2 full free + 2 premium previews';
 
   const toggleInstrument = (instrumentId: string) => {
     setSelectedInstruments(prev => (
@@ -682,36 +696,75 @@ export default function App() {
         throw new Error(`Song limit reached. Weekly left: ${access.weeklyRemaining || 0}, monthly left: ${access.monthlyRemaining || 0}.`);
       }
 
-      const generation = await postJson<{
-        audioBase64: string;
-        mimeType: string;
-        lyrics: string;
-      }>('/api/generate-song', {
-        prompt: finalPrompt,
-        genreDescription,
-        arrangementDescription,
-        modelProfile,
-        lyricsText,
-        lyricsMode,
-        instrumental,
-        styleText,
-        weirdness,
-        styleInfluence,
-        voice: selectedVoice,
-      });
+      const variantPlans = [
+        {
+          title: 'Free Full Version 1',
+          durationMode: 'full',
+          direction: 'primary radio arrangement with the strongest hook and polished power vocal',
+        },
+        {
+          title: 'Free Full Version 2',
+          durationMode: 'full',
+          direction: 'alternate full arrangement with a different groove, melody lift, and chorus energy',
+        },
+        {
+          title: hasPremiumFullVariants ? 'Premium Full Version 3' : 'Premium Preview Version 3',
+          durationMode: hasPremiumFullVariants ? 'full' : 'preview',
+          direction: 'premium power voice version with bigger dynamics, wider stereo drums, and more dramatic vocal lift',
+        },
+        {
+          title: hasPremiumFullVariants ? 'Premium Full Version 4' : 'Premium Preview Version 4',
+          durationMode: hasPremiumFullVariants ? 'full' : 'preview',
+          direction: 'premium alternate master with cinematic build, stronger adlibs, and final-chorus impact',
+        },
+      ];
+      const generatedSongs: Song[] = [];
 
-      const { audioBase64, lyrics, mimeType } = generation;
-      
-      // Collect audio into blob - Force audio/mpeg as fallback if mimeType is unknown
-      const binary = atob(audioBase64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
+      for (const variant of variantPlans) {
+        const generation = await postJson<{
+          audioBase64: string;
+          mimeType: string;
+          lyrics: string;
+        }>('/api/generate-song', {
+          prompt: finalPrompt,
+          genreDescription,
+          arrangementDescription,
+          modelProfile,
+          lyricsText,
+          lyricsMode,
+          instrumental,
+          styleText,
+          weirdness,
+          styleInfluence,
+          durationMode: variant.durationMode,
+          variantLabel: `${variant.title}: ${variant.direction}`,
+          voice: selectedVoice,
+        });
+
+        const newSongId = Math.random().toString(36).substr(2, 9);
+        const uploadedAudio = await uploadSongAudio(
+          user.uid,
+          newSongId,
+          audioBase64ToBlob(generation.audioBase64, generation.mimeType)
+        );
+        const baseTitle = idea || lyricsText || styleText || 'Studio track';
+        const newSong = {
+          id: newSongId,
+          idea: `${baseTitle} · ${variant.title}`,
+          prompt: `${finalPrompt}\n\n${variant.title}: ${variant.direction}`,
+          audioUrl: uploadedAudio.audioUrl,
+          storagePath: uploadedAudio.storagePath,
+          mimeType: uploadedAudio.mimeType,
+          lyrics: generation.lyrics || "Lyrics not generated for this track.",
+        };
+
+        await saveSong(user.uid, newSong);
+        generatedSongs.push({
+          ...newSong,
+          createdAt: Date.now()
+        });
       }
-      const safeMimeType = mimeType && mimeType !== "application/octet-stream" ? mimeType : "audio/mpeg";
-      const blob = new Blob([bytes], { type: safeMimeType });
-      const newSongId = Math.random().toString(36).substr(2, 9);
-      const uploadedAudio = await uploadSongAudio(user.uid, newSongId, blob);
+
       const usage = await consumeGenerationCredit(user.uid);
       if (!usage.allowed) {
         if (usage.mode === 'banned') {
@@ -724,17 +777,6 @@ export default function App() {
         throw new Error("Song limit reached before saving. Please try again after refill.");
       }
 
-      const newSong = {
-        id: newSongId,
-        idea: idea || lyricsText || styleText || 'Studio track',
-        prompt: finalPrompt,
-        audioUrl: uploadedAudio.audioUrl,
-        storagePath: uploadedAudio.storagePath,
-        mimeType: uploadedAudio.mimeType,
-        lyrics: lyrics || "Lyrics not generated for this track.",
-      };
-      
-      // Usage update locally
       setProfile(prev => {
         if (!prev) return null;
         if (usage.mode === 'owner') return prev;
@@ -750,11 +792,7 @@ export default function App() {
         };
       });
 
-      await saveSong(user.uid, newSong);
-      setCurrentSong({
-        ...newSong,
-        createdAt: Date.now()
-      });
+      setCurrentSong(generatedSongs[0] || null);
       setShowLyrics(true);
     } catch (err: any) {
       console.error("Music Engine Error:", err);
@@ -1841,22 +1879,25 @@ export default function App() {
 
               <div className="flex flex-col sm:flex-row items-center justify-between p-2 lg:p-8 border-t border-zinc-800/50 gap-4">
                 <div className="flex gap-2 lg:gap-4 w-full sm:w-auto">
-                  <button 
-                    onClick={handleOptimize}
-                    disabled={isOptimizing || !idea || isAccountBanned}
-                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 lg:px-6 py-2 lg:py-3 rounded-xl lg:rounded-2xl bg-zinc-900 group border border-zinc-800 text-[10px] lg:text-xs font-bold text-zinc-400 transition-all hover:bg-zinc-800 hover:text-white disabled:opacity-50"
-                  >
-                    <Mic2 size={14} className="group-hover:text-violet-400 transition-colors" />
-                    <span className="hidden xs:inline">{isOptimizing ? 'Analyzing...' : 'Gemini Auto-Enhance'}</span>
-                    <span className="xs:hidden">Enhance</span>
-                  </button>
+                  <div className="flex-1 sm:flex-none">
+                    <button
+                      onClick={handleOptimize}
+                      disabled={isOptimizing || !idea || isAccountBanned}
+                      className="w-full flex items-center justify-center gap-2 px-4 lg:px-6 py-2 lg:py-3 rounded-xl lg:rounded-2xl bg-zinc-900 group border border-zinc-800 text-[10px] lg:text-xs font-bold text-zinc-400 transition-all hover:bg-zinc-800 hover:text-white disabled:opacity-50"
+                    >
+                      <Mic2 size={14} className="group-hover:text-violet-400 transition-colors" />
+                      <span className="hidden xs:inline">{isOptimizing ? 'Analyzing...' : 'Gemini Auto-Enhance'}</span>
+                      <span className="xs:hidden">Enhance</span>
+                    </button>
+                    <p className="mt-1 text-center text-[8px] font-black uppercase tracking-widest text-zinc-600">{variantPolicyLabel}</p>
+                  </div>
                 </div>
                 <button 
                   onClick={handleGenerate}
                   disabled={isGenerating || !hasGenerationPrompt || isAccountBanned}
                   className="w-full sm:w-auto px-6 lg:px-14 py-3 lg:py-5 rounded-xl lg:rounded-[2rem] bg-indigo-600 hover:bg-indigo-500 text-white font-black text-sm lg:text-lg flex items-center justify-center gap-3 lg:gap-4 shadow-2xl shadow-indigo-600/30 transition-all active:scale-95 disabled:opacity-50"
                 >
-                  <span>{isAccountBanned ? 'Account Banned' : isGenerating ? 'Synthesizing...' : 'Generate Symphony'}</span>
+                  <span>{isAccountBanned ? 'Account Banned' : isGenerating ? 'Generating 4 Versions...' : 'Generate 4 Versions'}</span>
                   {isGenerating ? (
                     <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}>
                        <RotateCcw size={18} />

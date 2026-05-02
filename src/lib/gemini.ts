@@ -61,6 +61,8 @@ export const generateSongAudio = async ({
   styleText,
   weirdness,
   styleInfluence,
+  durationMode,
+  variantLabel,
   voice,
 }: {
   prompt: string;
@@ -73,13 +75,19 @@ export const generateSongAudio = async ({
   styleText: string;
   weirdness: number;
   styleInfluence: number;
+  durationMode: string;
+  variantLabel: string;
   voice: string;
 }) => {
   const ai = getClient();
+  const durationInstruction = durationMode === 'preview'
+    ? 'Target duration must be about 60 seconds. This is a premium preview, so make it feel exciting but end cleanly at the preview point.'
+    : 'Target duration must be at least 2 minutes 50 seconds and no longer than 3 minutes 30 seconds. Do not make a short sample.';
   const fullPrompt = [
     `Create a complete, fully arranged ${genreDescription} song as an MP3 with commercial AI music platform quality.`,
-    'Target duration must be at least 2 minutes 50 seconds and no longer than 3 minutes 30 seconds. Do not make a short sample.',
+    durationInstruction,
     `Theme: ${prompt}.`,
+    `Variation: ${variantLabel}.`,
     `Model profile: ${modelProfile}.`,
     `Style tags: ${styleText || genreDescription}.`,
     `Vocal direction: ${voice}.`,
@@ -87,7 +95,9 @@ export const generateSongAudio = async ({
     `Creative controls: weirdness ${weirdness}%, style influence ${styleInfluence}%.`,
     `Arrangement must follow these selected sounds: ${arrangementDescription}.`,
     'Production must feel studio-recorded: polished lead vocal, tight timing, rich stereo instrumental, clear low end, balanced drums, strong hook, radio-ready loudness, and mastered final mix.',
-    'Write and perform the full prompt from start to finish. Include intro, verse 1, pre-chorus, chorus, verse 2, bridge, final chorus, and outro. The ending must feel complete, not cut off.',
+    durationMode === 'preview'
+      ? 'Write and perform a compact premium preview with intro, hook, verse/chorus highlight, and a clean teaser ending.'
+      : 'Write and perform the full prompt from start to finish. Include intro, verse 1, pre-chorus, chorus, verse 2, bridge, final chorus, and outro. The ending must feel complete, not cut off.',
     'Lyrics must be complete, natural to sing, and match the user language when clear. Return the full lyrics/structure text and the MP3 audio.',
   ].join(' ');
 
