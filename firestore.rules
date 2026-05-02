@@ -150,6 +150,46 @@ service cloud.firestore {
         && isValidChatText();
     }
 
+    function isValidPublicSong() {
+      return incoming().keys().hasOnly([
+          'userId',
+          'sourceSongId',
+          'title',
+          'prompt',
+          'audioUrl',
+          'mimeType',
+          'lyrics',
+          'authorName',
+          'authorPhotoUrl',
+          'coverTheme',
+          'visibility',
+          'createdAt',
+          'publishedAt'
+        ])
+        && incoming().userId == request.auth.uid
+        && isValidId(incoming().sourceSongId)
+        && incoming().title is string
+        && incoming().title.size() > 0
+        && incoming().title.size() <= 160
+        && incoming().prompt is string
+        && incoming().prompt.size() <= 1500
+        && incoming().audioUrl is string
+        && incoming().audioUrl.size() < 1000
+        && incoming().mimeType is string
+        && incoming().mimeType.size() <= 80
+        && incoming().lyrics is string
+        && incoming().lyrics.size() <= 6000
+        && incoming().authorName is string
+        && incoming().authorName.size() > 0
+        && incoming().authorName.size() <= 80
+        && (!('authorPhotoUrl' in incoming()) || incoming().authorPhotoUrl == null || (incoming().authorPhotoUrl is string && incoming().authorPhotoUrl.size() < 1000))
+        && incoming().coverTheme is string
+        && incoming().coverTheme.size() <= 40
+        && incoming().visibility == 'public'
+        && incoming().createdAt == request.time
+        && incoming().publishedAt == request.time;
+    }
+
     // User Profile
     match /users/{userId} {
       allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
@@ -198,6 +238,19 @@ service cloud.firestore {
         && isChatAllowed()
         && (isUserChatMessage() || isAiChatMessage());
       allow update, delete: if isAdmin();
+    }
+
+    // Public Music World feed
+    match /publicSongs/{publicSongId} {
+      allow read: if true;
+      allow create: if isSignedIn()
+        && isChatAllowed()
+        && isValidId(publicSongId)
+        && isValidPublicSong();
+      allow update: if isSignedIn()
+        && isOwner(existing().userId)
+        && isValidPublicSong();
+      allow delete: if isSignedIn() && (isOwner(existing().userId) || isAdmin());
     }
 
     // Presence

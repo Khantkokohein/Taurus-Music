@@ -28,7 +28,9 @@ import {
   MessageSquare,
   Smartphone,
   Send,
-  Upload
+  Upload,
+  Globe2,
+  Share2
 } from 'lucide-react';
 import ChatRoom from './components/ChatRoom';
 import { 
@@ -65,6 +67,7 @@ import { collection, query, orderBy, onSnapshot, limit, where, doc, setDoc, serv
 
 interface Song {
   id: string;
+  userId?: string;
   idea: string;
   prompt: string;
   audioUrl: string;
@@ -72,6 +75,21 @@ interface Song {
   mimeType?: string;
   lyrics: string;
   createdAt: number;
+}
+
+interface PublicSong {
+  id: string;
+  userId: string;
+  sourceSongId: string;
+  title: string;
+  prompt: string;
+  audioUrl: string;
+  mimeType?: string;
+  lyrics: string;
+  authorName: string;
+  authorPhotoUrl?: string | null;
+  coverTheme: string;
+  publishedAt: number;
 }
 
 const formatUsd = (value: number) => `$${value % 1 === 0 ? value.toFixed(0) : value.toFixed(2)}`;
@@ -131,6 +149,41 @@ const buildPlanCard = (id: UserTier) => {
 
 const PLAN_CARDS = (['free', 'personal', 'pro', 'prime', 'premium'] as UserTier[]).map(buildPlanCard);
 const TIERS = (['personal', 'pro', 'prime', 'premium'] as UserTier[]).map(buildPlanCard);
+
+const WORLD_COVER_THEMES = [
+  {
+    id: 'violet-stage',
+    bg: 'from-violet-700 via-fuchsia-700 to-zinc-950',
+    accent: 'bg-fuchsia-300',
+    text: 'text-fuchsia-100',
+  },
+  {
+    id: 'emerald-room',
+    bg: 'from-emerald-600 via-teal-800 to-zinc-950',
+    accent: 'bg-emerald-300',
+    text: 'text-emerald-100',
+  },
+  {
+    id: 'amber-radio',
+    bg: 'from-amber-500 via-rose-700 to-zinc-950',
+    accent: 'bg-amber-200',
+    text: 'text-amber-50',
+  },
+  {
+    id: 'blue-night',
+    bg: 'from-sky-600 via-indigo-800 to-zinc-950',
+    accent: 'bg-sky-200',
+    text: 'text-sky-100',
+  },
+] as const;
+
+const getSongHash = (value: string) => (
+  value.split('').reduce((total, char) => total + char.charCodeAt(0), 0)
+);
+
+const getCoverTheme = (value: string) => (
+  WORLD_COVER_THEMES[getSongHash(value || 'taurus') % WORLD_COVER_THEMES.length]
+);
 
 const GENRE_OPTIONS = [
   { id: 'Neon Pulse', description: 'Modern high-energy Electronic/EDM with synth-wave elements' },
@@ -291,10 +344,13 @@ export default function App() {
   const [showPayment, setShowPayment] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  const [showMusicWorld, setShowMusicWorld] = useState(false);
   const [showDailyReward, setShowDailyReward] = useState(false);
   const [selectedTier, setSelectedTier] = useState<UserTier>('personal');
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
   const [isPaymentSubmitting, setIsPaymentSubmitting] = useState(false);
+  const [publicSongs, setPublicSongs] = useState<PublicSong[]>([]);
+  const [publishingSongId, setPublishingSongId] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
   const [searchEmail, setSearchEmail] = useState('');
@@ -412,6 +468,7 @@ export default function App() {
         const data = doc.data();
         return {
           id: doc.id,
+          userId: data.userId || user.uid,
           idea: data.idea,
           prompt: data.prompt,
           audioUrl: data.audioUrl,
@@ -425,6 +482,39 @@ export default function App() {
     });
     return () => unsubscribe();
   }, [user]);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, 'publicSongs'),
+      orderBy('publishedAt', 'desc'),
+      limit(60)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const songs = snapshot.docs.map(songDoc => {
+        const data = songDoc.data();
+        return {
+          id: songDoc.id,
+          userId: data.userId,
+          sourceSongId: data.sourceSongId,
+          title: data.title || 'Untitled Track',
+          prompt: data.prompt || '',
+          audioUrl: data.audioUrl,
+          mimeType: data.mimeType || 'audio/mpeg',
+          lyrics: data.lyrics || '',
+          authorName: data.authorName || 'Taurus creator',
+          authorPhotoUrl: data.authorPhotoUrl || null,
+          coverTheme: data.coverTheme || 'violet-stage',
+          publishedAt: data.publishedAt?.toMillis?.() || Date.now(),
+        } as PublicSong;
+      });
+      setPublicSongs(songs);
+    }, (err) => {
+      console.error("Music World Error:", err);
+      setError("Music World feed failed to load.");
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
@@ -551,6 +641,71 @@ export default function App() {
       console.error("Share Song Error:", err);
       setError(err.message || "Failed to send song to chat.");
     }
+  };
+
+  const handlePublishCurrentSong = async () => {
+    if (!user || !currentSong) {
+      setError("Please login and select a song first.");
+      return;
+    }
+
+    if (isAccountBanned) {
+      setError(`Account banned until ${new Date(accountBanUntil).toLocaleDateString()}. Please contact admin.`);
+      return;
+    }
+
+    if (currentSong.userId && currentSong.userId !== user.uid) {
+      setError("Only the song owner can publish this track.");
+      return;
+    }
+
+    if (!currentSong.audioUrl || currentSong.audioUrl.startsWith('blob:')) {
+      setError("This song needs permanent audio before publishing. Generate it again first.");
+      return;
+    }
+
+    try {
+      setPublishingSongId(currentSong.id);
+      const publicSongId = `${user.uid}_${currentSong.id}`;
+      const title = (currentSong.idea || 'Untitled Track').slice(0, 160);
+      await setDoc(doc(db, 'publicSongs', publicSongId), {
+        userId: user.uid,
+        sourceSongId: currentSong.id,
+        title,
+        prompt: (currentSong.prompt || '').slice(0, 1500),
+        audioUrl: currentSong.audioUrl,
+        mimeType: currentSong.mimeType || 'audio/mpeg',
+        lyrics: (currentSong.lyrics || '').slice(0, 6000),
+        authorName: user.displayName || user.email?.split('@')[0] || 'Taurus creator',
+        authorPhotoUrl: user.photoURL || null,
+        coverTheme: getCoverTheme(currentSong.id).id,
+        visibility: 'public',
+        createdAt: serverTimestamp(),
+        publishedAt: serverTimestamp(),
+      }, { merge: true });
+      setShowMusicWorld(true);
+      setError(null);
+    } catch (err: any) {
+      console.error("Publish Song Error:", err);
+      setError(err.message || "Failed to publish song.");
+    } finally {
+      setPublishingSongId('');
+    }
+  };
+
+  const openWorldSongInPlayer = (song: PublicSong) => {
+    setCurrentSong({
+      id: song.id,
+      userId: song.userId,
+      idea: song.title,
+      prompt: song.prompt,
+      audioUrl: song.audioUrl,
+      mimeType: song.mimeType,
+      lyrics: song.lyrics,
+      createdAt: song.publishedAt,
+    });
+    setShowLyrics(false);
+    setShowMusicWorld(false);
   };
 
   const stopVoiceStream = () => {
@@ -791,6 +946,7 @@ export default function App() {
         await saveSong(user.uid, newSong);
         generatedSongs.push({
           ...newSong,
+          userId: user.uid,
           createdAt: Date.now()
         });
       }
@@ -962,6 +1118,126 @@ export default function App() {
             <AlertCircle size={16} />
             <span className="text-sm font-medium">{error}</span>
             <button onClick={() => setError(null)} className="ml-2 hover:text-white transition-colors">×</button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showMusicWorld && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[95] bg-zinc-950 text-white"
+          >
+            <div className="absolute inset-x-0 top-0 z-20 flex h-16 items-center justify-between border-b border-zinc-800 bg-zinc-950/85 px-4 backdrop-blur-xl lg:px-8">
+              <button
+                type="button"
+                onClick={() => setShowMusicWorld(false)}
+                className="flex items-center gap-3 text-left"
+              >
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-300">
+                  <Globe2 size={20} />
+                </div>
+                <div>
+                  <p className="text-sm font-black uppercase tracking-widest">Music World</p>
+                  <p className="text-[10px] font-bold text-zinc-500">{publicSongs.length} public songs</p>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowMusicWorld(false)}
+                className="rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-zinc-400 transition-colors hover:text-white"
+                title="Close Music World"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="h-full overflow-y-auto snap-y snap-mandatory pt-16 custom-scrollbar">
+              {publicSongs.length === 0 ? (
+                <section className="flex min-h-[calc(100vh-4rem)] snap-start items-center justify-center p-6">
+                  <div className="max-w-sm text-center">
+                    <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-900 text-zinc-500">
+                      <Music size={30} />
+                    </div>
+                    <h2 className="text-2xl font-black">No public songs yet</h2>
+                    <p className="mt-3 text-sm leading-relaxed text-zinc-500">
+                      Generate a song, open it in the player, then publish it to start Music World.
+                    </p>
+                  </div>
+                </section>
+              ) : (
+                publicSongs.map((song, index) => {
+                  const theme = WORLD_COVER_THEMES.find(item => item.id === song.coverTheme) || getCoverTheme(song.id);
+                  return (
+                    <section
+                      key={song.id}
+                      className="flex min-h-[calc(100vh-4rem)] snap-start items-center justify-center px-4 py-6 lg:px-10"
+                    >
+                      <div className="grid w-full max-w-5xl items-center gap-6 lg:grid-cols-[minmax(280px,420px)_1fr]">
+                        <div className={`relative flex aspect-[9/16] min-h-[520px] overflow-hidden rounded-2xl bg-gradient-to-br ${theme.bg} p-5 shadow-2xl shadow-black/60`}>
+                          <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(0,0,0,0.05),rgba(0,0,0,0.72))]" />
+                          <div className="relative z-10 flex h-full w-full flex-col justify-between">
+                            <div className="flex items-center justify-between">
+                              <span className="rounded-full bg-black/30 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white/80">
+                                Public
+                              </span>
+                              <span className={`h-3 w-3 rounded-full ${theme.accent} shadow-lg`} />
+                            </div>
+                            <div>
+                              <div className={`mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-white/10 ${theme.text}`}>
+                                <Music size={34} />
+                              </div>
+                              <h2 className="text-3xl font-black leading-tight tracking-tight lg:text-4xl">
+                                {song.title}
+                              </h2>
+                              <p className="mt-3 text-sm font-bold text-white/70">by {song.authorName}</p>
+                            </div>
+                            <audio controls src={song.audioUrl} className="h-10 w-full" />
+                          </div>
+                        </div>
+
+                        <div className="min-w-0 space-y-5">
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-emerald-300">
+                              {String(index + 1).padStart(2, '0')} / Music World
+                            </p>
+                            <h3 className="mt-3 text-3xl font-black leading-tight lg:text-5xl">{song.title}</h3>
+                            <p className="mt-3 text-sm text-zinc-500">
+                              Published by {song.authorName} · {new Date(song.publishedAt).toLocaleDateString()}
+                            </p>
+                          </div>
+                          {song.lyrics && (
+                            <div className="max-h-44 overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 custom-scrollbar">
+                              <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">{song.lyrics}</p>
+                            </div>
+                          )}
+                          <div className="flex flex-wrap gap-3">
+                            <button
+                              type="button"
+                              onClick={() => openWorldSongInPlayer(song)}
+                              className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-black text-black transition-colors hover:bg-zinc-200"
+                            >
+                              <Play size={16} fill="currentColor" />
+                              Open Player
+                            </button>
+                            <a
+                              href={song.audioUrl}
+                              download={`Taurus-${song.sourceSongId}.mp3`}
+                              className="inline-flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-3 text-sm font-black text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+                            >
+                              <Download size={16} />
+                              MP3
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  );
+                })
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1553,6 +1829,15 @@ export default function App() {
             <span className="text-white truncate max-w-[120px] sm:max-w-none">AI Instrumentalist</span>
           </div>
           <div className="flex gap-2 sm:gap-4">
+             <button
+               type="button"
+               onClick={() => setShowMusicWorld(true)}
+               className="flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-emerald-300 transition-colors hover:bg-emerald-500/20 hover:text-white"
+             >
+                <Globe2 size={13} />
+                <span className="hidden sm:inline">Music World</span>
+                <span>{publicSongs.length}</span>
+             </button>
              {isAdminUser && (
                 <div className="hidden md:block px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold text-emerald-500">
                   ADMIN OVERRIDE ACTIVE
@@ -2026,6 +2311,16 @@ export default function App() {
               >
                 <Send size={18} />
                 <span className="hidden xl:inline">Send to Chat</span>
+              </button>
+              <button
+                type="button"
+                onClick={handlePublishCurrentSong}
+                disabled={!user || isAccountBanned || publishingSongId === currentSong.id || Boolean(currentSong.userId && currentSong.userId !== user?.uid)}
+                title="Publish to Music World"
+                className="p-3 lg:px-5 lg:py-4 rounded-xl lg:rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 hover:text-white hover:bg-emerald-500/20 hover:border-emerald-400/40 font-black text-sm transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2"
+              >
+                <Share2 size={18} />
+                <span className="hidden xl:inline">{publishingSongId === currentSong.id ? 'Publishing' : 'Publish'}</span>
               </button>
               <a 
                 href={currentSong.audioUrl}
