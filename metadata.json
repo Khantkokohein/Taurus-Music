@@ -1,6 +1,6 @@
 {
-  "name": "Taurus Music",
-  "description": "AI music synthesis platform with vocals, credits system and manual payment integration.",
+  "name": "Taurus - Your Music Agent",
+  "description": "AI music synthesis platform with 3-minute rap, motivation songs, wallet credits, manual payment and admin confirmation.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["AI Music Generation", "Cloud Storage", "User Accounts"]
+  "majorCapabilities": ["AI Music Generation", "Cloud Storage", "User Accounts", "Wallet Credits"]
 }
