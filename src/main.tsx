@@ -1,10 +1,10 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import AppLite from './AppLite.tsx';
+import AppStudio from './AppStudio.tsx';
 import './index.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AppLite />
+    <AppStudio />
   </StrictMode>,
 );
