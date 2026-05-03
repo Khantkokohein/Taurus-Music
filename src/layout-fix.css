@@ -1,0 +1,39 @@
+.studio-shell {
+  width: 100%;
+}
+
+@media (min-width: 1024px) {
+  .studio-shell > .studio-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 24px;
+    align-items: start;
+  }
+
+  .studio-main-column {
+    min-width: 0;
+  }
+
+  .studio-side-panel {
+    display: block;
+    width: 360px;
+    min-width: 360px;
+    position: sticky;
+    top: 24px;
+    align-self: start;
+  }
+}
+
+@media (max-width: 1023px) {
+  .studio-shell > .studio-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .studio-side-panel {
+    display: block;
+    width: 100%;
+    position: static;
+  }
+}
