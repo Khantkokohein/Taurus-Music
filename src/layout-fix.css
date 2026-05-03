@@ -3,37 +3,48 @@
 }
 
 @media (min-width: 1024px) {
+  main > div.grid,
   .studio-shell > .studio-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 360px;
-    gap: 24px;
-    align-items: start;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 360px !important;
+    gap: 24px !important;
+    align-items: start !important;
   }
 
+  main > div.grid > section,
   .studio-main-column {
-    min-width: 0;
+    min-width: 0 !important;
   }
 
+  main > div.grid > aside,
   .studio-side-panel {
-    display: block;
-    width: 360px;
-    min-width: 360px;
-    position: sticky;
-    top: 24px;
-    align-self: start;
+    display: block !important;
+    width: 360px !important;
+    min-width: 360px !important;
+    max-width: 360px !important;
+    position: sticky !important;
+    top: 24px !important;
+    align-self: start !important;
+    visibility: visible !important;
+    opacity: 1 !important;
   }
 }
 
 @media (max-width: 1023px) {
+  main > div.grid,
   .studio-shell > .studio-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 24px;
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 24px !important;
   }
 
+  main > div.grid > aside,
   .studio-side-panel {
-    display: block;
-    width: 100%;
-    position: static;
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    position: static !important;
+    visibility: visible !important;
+    opacity: 1 !important;
   }
 }
