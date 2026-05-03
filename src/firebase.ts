@@ -10,8 +10,10 @@ export const auth = getAuth(app);
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 
-export const DAILY_POINT_GRANT = 10;
-export const SONG_POINT_COST = 100;
+export const FREE_STARTER_CREDITS = 10;
+export const FREE_DAILY_CREDIT_CAP = 5;
+export const PREMIUM_MONTHLY_CREDITS = 150;
+export const GENERATE_TWO_SONGS_COST = 2;
 export const CHAT_BAN_THRESHOLD = 3;
 export const CHAT_BAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 export const LYRIA_SONG_API_COST_USD = 0.08;
@@ -62,17 +64,12 @@ const createPlan = (
   monthlyGrossMargin: price - (monthlyLimit * LYRIA_SONG_API_COST_USD),
 });
 
-const createPaidPlan = (id: UserTier, name: string, price: number, durationDays: number, durationLabel: string): PlanConfig => {
-  const monthlyLimit = Math.floor((price * 0.8) / LYRIA_SONG_API_COST_USD);
-  return createPlan(id, name, price, Math.ceil(monthlyLimit / 4), monthlyLimit, durationDays, durationLabel);
-};
-
 export const PLAN_CONFIGS: Record<UserTier, PlanConfig> = {
-  free: createPlan('free', 'Free', 0, 2, 8),
-  personal: createPaidPlan('personal', 'Personal', 5, 30, '1 month'),
-  pro: createPaidPlan('pro', 'Pro', 15, 30, '1 month'),
-  prime: createPaidPlan('prime', 'Prime', 40, 90, '3 months'),
-  premium: createPaidPlan('premium', 'Premium', 200, 365, '1 year'),
+  free: createPlan('free', 'Free Starter', 0, FREE_DAILY_CREDIT_CAP, FREE_STARTER_CREDITS),
+  personal: createPlan('personal', 'Top Up 50', 3.75, 50, 50, 0, 'Credits top-up'),
+  pro: createPlan('pro', 'Top Up 100', 6.75, 100, 100, 0, 'Credits top-up'),
+  prime: createPlan('prime', 'Top Up 300', 17.25, 300, 300, 0, 'Credits top-up'),
+  premium: createPlan('premium', 'Premium', 12.25, PREMIUM_MONTHLY_CREDITS, PREMIUM_MONTHLY_CREDITS, 30, '1 month'),
 };
 
 export const getPlanConfig = (tier?: string | null) => (
@@ -97,10 +94,10 @@ export interface UserProfile {
   email: string;
   displayName?: string;
   dailyGenerationCount: number;
-  lastGenerationDate: string; // ISO Date YYYY-MM-DD
+  lastGenerationDate: string;
   credits: number;
   points: number;
-  lastPointGrantDate: string; // ISO Date YYYY-MM-DD
+  lastPointGrantDate: string;
   totalPointsEarned: number;
   tier: UserTier;
   requestedTier?: UserTier | null;
@@ -121,10 +118,10 @@ export interface UserProfile {
   role: 'user' | 'admin';
   weeklyLimit: number;
   songsUsedThisWeek: number;
-  lastRefillDate: string; // ISO Date YYYY-MM-DD
+  lastRefillDate: string;
   monthlyLimit: number;
   songsUsedThisMonth: number;
-  lastMonthlyRefillDate: string; // ISO Month YYYY-MM
+  lastMonthlyRefillDate: string;
   chatBannedUntil?: Timestamp;
   chatBanReason?: string;
   chatBannedAt?: Timestamp;
@@ -151,10 +148,7 @@ export const logout = () => signOut(auth);
 
 export const getUserProfile = async (uid: string): Promise<UserProfile | null> => {
   const userDoc = await getDoc(doc(db, 'users', uid));
-  if (userDoc.exists()) {
-    return userDoc.data() as UserProfile;
-  }
-  return null;
+  return userDoc.exists() ? userDoc.data() as UserProfile : null;
 };
 
 const getTodayKey = () => new Date().toISOString().split('T')[0];
@@ -173,7 +167,6 @@ export const createUserProfile = async (uid: string, email: string, displayName 
   const today = getTodayKey();
   const month = getMonthKey();
   const freePlan = PLAN_CONFIGS.free;
-  
   const profile: UserProfile = {
     uid,
     email,
@@ -181,9 +174,9 @@ export const createUserProfile = async (uid: string, email: string, displayName 
     dailyGenerationCount: 0,
     lastGenerationDate: today,
     credits: 0,
-    points: DAILY_POINT_GRANT,
+    points: FREE_STARTER_CREDITS,
     lastPointGrantDate: today,
-    totalPointsEarned: DAILY_POINT_GRANT,
+    totalPointsEarned: FREE_STARTER_CREDITS,
     tier: 'free',
     role: isOwnerEmail(email) ? 'admin' : 'user',
     weeklyLimit: freePlan.weeklyLimit,
@@ -193,7 +186,7 @@ export const createUserProfile = async (uid: string, email: string, displayName 
     songsUsedThisMonth: 0,
     lastMonthlyRefillDate: month,
     chatViolationCount: 0,
-    chatBanCount: 0
+    chatBanCount: 0,
   };
   await setDoc(userRef, profile);
   return profile;
@@ -203,71 +196,48 @@ export const claimDailyPointsIfNeeded = async (uid: string, displayName = '') =>
   const userRef = doc(db, 'users', uid);
   const today = getTodayKey();
   const month = getMonthKey();
-
   return runTransaction(db, async (transaction) => {
     const userSnap = await transaction.get(userRef);
     if (!userSnap.exists()) return null;
-
     const data = userSnap.data() as UserProfile;
-    const updates: Partial<UserProfile> = {};
     const plan = getEffectivePlanConfig(data);
-    let dailyRewardClaimed = false;
-
-    if (!data.displayName && displayName) {
-      updates.displayName = displayName;
+    const updates: Partial<UserProfile> = {};
+    if (!data.displayName && displayName) updates.displayName = displayName;
+    if (!data.lastPointGrantDate) updates.lastPointGrantDate = today;
+    if (typeof data.points !== 'number') updates.points = FREE_STARTER_CREDITS;
+    if (typeof data.totalPointsEarned !== 'number') updates.totalPointsEarned = FREE_STARTER_CREDITS;
+    if (data.weeklyLimit !== plan.weeklyLimit) updates.weeklyLimit = plan.weeklyLimit;
+    if (data.monthlyLimit !== plan.monthlyLimit) updates.monthlyLimit = plan.monthlyLimit;
+    if (typeof data.dailyGenerationCount !== 'number' || data.lastGenerationDate !== today) {
+      updates.dailyGenerationCount = data.lastGenerationDate === today ? (data.dailyGenerationCount || 0) : 0;
+      updates.lastGenerationDate = today;
     }
-
-    if (data.lastPointGrantDate !== today) {
-      updates.points = (data.points || 0) + DAILY_POINT_GRANT;
-      updates.lastPointGrantDate = today;
-      updates.totalPointsEarned = (data.totalPointsEarned || 0) + DAILY_POINT_GRANT;
-      dailyRewardClaimed = true;
-    }
-
-    if (data.weeklyLimit !== plan.weeklyLimit) {
-      updates.weeklyLimit = plan.weeklyLimit;
-    }
-
-    if (data.monthlyLimit !== plan.monthlyLimit) {
-      updates.monthlyLimit = plan.monthlyLimit;
-    }
-
-    if (typeof data.songsUsedThisMonth !== 'number') {
-      updates.songsUsedThisMonth = 0;
-    }
-
-    if (!data.lastMonthlyRefillDate) {
+    if (typeof data.songsUsedThisMonth !== 'number' || data.lastMonthlyRefillDate !== month) {
+      updates.songsUsedThisMonth = data.lastMonthlyRefillDate === month ? (data.songsUsedThisMonth || 0) : 0;
       updates.lastMonthlyRefillDate = month;
     }
-
-    if (Object.keys(updates).length > 0) {
-      transaction.update(userRef, updates);
-    }
-
-    return {
-      ...data,
-      ...updates,
-      dailyRewardClaimed,
-    } as UserProfile & { dailyRewardClaimed: boolean };
+    if (Object.keys(updates).length > 0) transaction.update(userRef, updates);
+    return { ...data, ...updates, dailyRewardClaimed: false } as UserProfile & { dailyRewardClaimed: boolean };
   });
 };
 
 export const approvePayment = async (userId: string, tierId: string) => {
   const tierConfig = PLAN_CONFIGS[tierId as UserTier];
-
   if (!tierConfig) return;
-
   const userRef = doc(db, 'users', userId);
   const today = getTodayKey();
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + tierConfig.durationDays * 24 * 60 * 60 * 1000);
-  
+  const expiresAt = new Date(now.getTime() + Math.max(tierConfig.durationDays, 30) * 24 * 60 * 60 * 1000);
+  const isTopUp = tierConfig.durationDays === 0;
+  const current = await getDoc(userRef);
+  const currentData = current.exists() ? current.data() as UserProfile : null;
   await updateDoc(userRef, {
-    tier: tierConfig.id,
-    weeklyLimit: tierConfig.weeklyLimit,
-    monthlyLimit: tierConfig.monthlyLimit,
-    songsUsedThisWeek: 0,
-    songsUsedThisMonth: 0,
+    tier: isTopUp ? (currentData?.tier || 'free') : tierConfig.id,
+    weeklyLimit: isTopUp ? (currentData?.weeklyLimit || PLAN_CONFIGS.free.weeklyLimit) : tierConfig.weeklyLimit,
+    monthlyLimit: isTopUp ? ((currentData?.monthlyLimit || 0) + tierConfig.monthlyLimit) : tierConfig.monthlyLimit,
+    songsUsedThisWeek: currentData?.songsUsedThisWeek || 0,
+    songsUsedThisMonth: currentData?.songsUsedThisMonth || 0,
+    points: (currentData?.points || 0) + (isTopUp ? tierConfig.monthlyLimit : 0),
     lastRefillDate: today,
     lastMonthlyRefillDate: getMonthKey(),
     pendingPayment: false,
@@ -275,18 +245,18 @@ export const approvePayment = async (userId: string, tierId: string) => {
     paymentApprovedAt: serverTimestamp(),
     paymentRejectedAt: null,
     paymentRejectReason: '',
-    subscriptionStartedAt: serverTimestamp(),
-    subscriptionExpiresAt: Timestamp.fromDate(expiresAt),
+    subscriptionStartedAt: isTopUp ? (currentData?.subscriptionStartedAt || null) : serverTimestamp(),
+    subscriptionExpiresAt: isTopUp ? (currentData?.subscriptionExpiresAt || null) : Timestamp.fromDate(expiresAt),
     subscriptionDurationDays: tierConfig.durationDays,
     subscriptionDurationLabel: tierConfig.durationLabel,
     subscriptionPlanName: tierConfig.name,
-    requestedTier: null
+    requestedTier: null,
   });
 };
 
 export const requestManualPayment = async (
   uid: string,
-  requestedTier: UserTier = 'personal',
+  requestedTier: UserTier = 'premium',
   proof?: { url: string; path: string; name: string }
 ) => {
   const userRef = doc(db, 'users', uid);
@@ -297,11 +267,7 @@ export const requestManualPayment = async (
     paymentSubmittedAt: serverTimestamp(),
     paymentRejectedAt: null,
     paymentRejectReason: '',
-    ...(proof ? {
-      paymentProofUrl: proof.url,
-      paymentProofPath: proof.path,
-      paymentProofName: proof.name,
-    } : {}),
+    ...(proof ? { paymentProofUrl: proof.url, paymentProofPath: proof.path, paymentProofName: proof.name } : {}),
   });
 };
 
@@ -322,133 +288,85 @@ export type GenerationUsageResult = {
   remaining: number;
   weeklyRemaining?: number;
   monthlyRemaining?: number;
+  dailyRemaining?: number;
 };
 
 const getDaysSince = (dateString?: string) => {
   const now = new Date();
   const refillDate = new Date(dateString || '2000-01-01');
-  const diffTime = Math.abs(now.getTime() - refillDate.getTime());
-  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return Math.ceil(Math.abs(now.getTime() - refillDate.getTime()) / (1000 * 60 * 60 * 24));
 };
 
 const getQuotaState = (data: UserProfile) => {
   const plan = getEffectivePlanConfig(data);
+  const today = getTodayKey();
+  const month = getMonthKey();
   const resetWeekly = getDaysSince(data.lastRefillDate) >= 7;
-  const resetMonthly = data.lastMonthlyRefillDate !== getMonthKey();
+  const resetMonthly = data.lastMonthlyRefillDate !== month;
+  const resetDaily = data.lastGenerationDate !== today;
   const weeklyLimit = plan.weeklyLimit;
   const monthlyLimit = plan.monthlyLimit;
   const songsUsedThisWeek = resetWeekly ? 0 : (data.songsUsedThisWeek || 0);
   const songsUsedThisMonth = resetMonthly ? 0 : (data.songsUsedThisMonth || 0);
+  const dailyUsed = resetDaily ? 0 : (data.dailyGenerationCount || 0);
+  const isFree = plan.id === 'free';
   const weeklyRemaining = Math.max(weeklyLimit - songsUsedThisWeek, 0);
   const monthlyRemaining = Math.max(monthlyLimit - songsUsedThisMonth, 0);
-
-  return {
-    plan,
-    weeklyLimit,
-    monthlyLimit,
-    songsUsedThisWeek,
-    songsUsedThisMonth,
-    resetWeekly,
-    resetMonthly,
-    weeklyRemaining,
-    monthlyRemaining,
-    remaining: Math.min(weeklyRemaining, monthlyRemaining),
-  };
+  const dailyRemaining = isFree ? Math.max(FREE_DAILY_CREDIT_CAP - dailyUsed, 0) : UNLIMITED_REMAINING;
+  const remaining = Math.min(weeklyRemaining, monthlyRemaining, dailyRemaining);
+  return { plan, weeklyLimit, monthlyLimit, songsUsedThisWeek, songsUsedThisMonth, dailyUsed, resetWeekly, resetMonthly, resetDaily, weeklyRemaining, monthlyRemaining, dailyRemaining, remaining };
 };
 
 export const checkGenerationAccess = async (uid: string): Promise<GenerationUsageResult> => {
   const userRef = doc(db, 'users', uid);
   await claimDailyPointsIfNeeded(uid);
-  
   const userSnap = await getDoc(userRef);
   if (!userSnap.exists()) return { allowed: false, mode: 'points', remaining: 0 };
-  
   const data = userSnap.data() as UserProfile;
   if (!isOwnerProfile(data) && isUserBanned(data)) return { allowed: false, mode: 'banned', remaining: 0 };
-  if (isOwnerProfile(data)) {
-    return {
-      allowed: true,
-      mode: 'owner',
-      remaining: UNLIMITED_REMAINING,
-      weeklyRemaining: UNLIMITED_REMAINING,
-      monthlyRemaining: UNLIMITED_REMAINING,
-    };
-  }
-
+  if (isOwnerProfile(data)) return { allowed: true, mode: 'owner', remaining: UNLIMITED_REMAINING, weeklyRemaining: UNLIMITED_REMAINING, monthlyRemaining: UNLIMITED_REMAINING, dailyRemaining: UNLIMITED_REMAINING };
   const quota = getQuotaState(data);
-  if (quota.resetWeekly || quota.resetMonthly || data.weeklyLimit !== quota.weeklyLimit || data.monthlyLimit !== quota.monthlyLimit) {
-    await updateDoc(userRef, {
-      weeklyLimit: quota.weeklyLimit,
-      monthlyLimit: quota.monthlyLimit,
-      songsUsedThisWeek: quota.songsUsedThisWeek,
-      songsUsedThisMonth: quota.songsUsedThisMonth,
-      lastRefillDate: quota.resetWeekly ? getTodayKey() : (data.lastRefillDate || getTodayKey()),
-      lastMonthlyRefillDate: quota.resetMonthly ? getMonthKey() : (data.lastMonthlyRefillDate || getMonthKey()),
-    });
-  }
-
-  return {
-    allowed: quota.remaining > 0,
-    mode: 'tier',
-    remaining: quota.remaining,
-    weeklyRemaining: quota.weeklyRemaining,
-    monthlyRemaining: quota.monthlyRemaining,
-  };
+  await updateDoc(userRef, {
+    weeklyLimit: quota.weeklyLimit,
+    monthlyLimit: quota.monthlyLimit,
+    songsUsedThisWeek: quota.songsUsedThisWeek,
+    songsUsedThisMonth: quota.songsUsedThisMonth,
+    dailyGenerationCount: quota.dailyUsed,
+    lastGenerationDate: getTodayKey(),
+    lastRefillDate: quota.resetWeekly ? getTodayKey() : (data.lastRefillDate || getTodayKey()),
+    lastMonthlyRefillDate: quota.resetMonthly ? getMonthKey() : (data.lastMonthlyRefillDate || getMonthKey()),
+  });
+  return { allowed: quota.remaining > 0, mode: 'tier', remaining: quota.remaining, weeklyRemaining: quota.weeklyRemaining, monthlyRemaining: quota.monthlyRemaining, dailyRemaining: quota.dailyRemaining };
 };
 
-export const consumeGenerationCredit = async (uid: string): Promise<GenerationUsageResult> => {
+export const consumeGenerationCredit = async (uid: string, cost = GENERATE_TWO_SONGS_COST): Promise<GenerationUsageResult> => {
   const userRef = doc(db, 'users', uid);
-  const today = getTodayKey();
-
   return runTransaction(db, async (transaction) => {
     const freshSnap = await transaction.get(userRef);
     if (!freshSnap.exists()) return { allowed: false, mode: 'points' as const, remaining: 0 };
-
     const data = freshSnap.data() as UserProfile;
     if (!isOwnerProfile(data) && isUserBanned(data)) return { allowed: false, mode: 'banned' as const, remaining: 0 };
-    if (isOwnerProfile(data)) {
-      return {
-        allowed: true,
-        mode: 'owner' as const,
-        remaining: UNLIMITED_REMAINING,
-        weeklyRemaining: UNLIMITED_REMAINING,
-        monthlyRemaining: UNLIMITED_REMAINING,
-      };
-    }
-
+    if (isOwnerProfile(data)) return { allowed: true, mode: 'owner' as const, remaining: UNLIMITED_REMAINING, weeklyRemaining: UNLIMITED_REMAINING, monthlyRemaining: UNLIMITED_REMAINING, dailyRemaining: UNLIMITED_REMAINING };
     const quota = getQuotaState(data);
-    if (quota.remaining <= 0) {
-      return {
-        allowed: false,
-        mode: 'tier' as const,
-        remaining: 0,
-        weeklyRemaining: quota.weeklyRemaining,
-        monthlyRemaining: quota.monthlyRemaining,
-      };
-    }
-
-    const nextWeeklyUsed = quota.songsUsedThisWeek + 1;
-    const nextMonthlyUsed = quota.songsUsedThisMonth + 1;
+    if (quota.remaining < cost) return { allowed: false, mode: 'tier' as const, remaining: quota.remaining, weeklyRemaining: quota.weeklyRemaining, monthlyRemaining: quota.monthlyRemaining, dailyRemaining: quota.dailyRemaining };
+    const nextWeeklyUsed = quota.songsUsedThisWeek + cost;
+    const nextMonthlyUsed = quota.songsUsedThisMonth + cost;
+    const nextDailyUsed = quota.dailyUsed + cost;
     const weeklyRemaining = Math.max(quota.weeklyLimit - nextWeeklyUsed, 0);
     const monthlyRemaining = Math.max(quota.monthlyLimit - nextMonthlyUsed, 0);
-    const remaining = Math.min(weeklyRemaining, monthlyRemaining);
-
+    const dailyRemaining = quota.plan.id === 'free' ? Math.max(FREE_DAILY_CREDIT_CAP - nextDailyUsed, 0) : UNLIMITED_REMAINING;
+    const remaining = Math.min(weeklyRemaining, monthlyRemaining, dailyRemaining);
     transaction.update(userRef, {
       weeklyLimit: quota.weeklyLimit,
       monthlyLimit: quota.monthlyLimit,
       songsUsedThisWeek: nextWeeklyUsed,
       songsUsedThisMonth: nextMonthlyUsed,
-      lastRefillDate: quota.resetWeekly ? today : (data.lastRefillDate || today),
+      dailyGenerationCount: nextDailyUsed,
+      lastGenerationDate: getTodayKey(),
+      lastRefillDate: quota.resetWeekly ? getTodayKey() : (data.lastRefillDate || getTodayKey()),
       lastMonthlyRefillDate: quota.resetMonthly ? getMonthKey() : (data.lastMonthlyRefillDate || getMonthKey()),
     });
-
-    return {
-      allowed: true,
-      mode: 'tier' as const,
-      remaining,
-      weeklyRemaining,
-      monthlyRemaining,
-    };
+    return { allowed: true, mode: 'tier' as const, remaining, weeklyRemaining, monthlyRemaining, dailyRemaining };
   });
 };
 
@@ -456,51 +374,29 @@ export const checkAndUpdateUsage = consumeGenerationCredit;
 
 export const saveSong = async (userId: string, song: Omit<Song, 'userId' | 'createdAt'>) => {
   const songRef = doc(db, 'users', userId, 'songs', song.id);
-  const fullSong: Song = {
-    ...song,
-    userId,
-    createdAt: serverTimestamp()
-  };
+  const fullSong: Song = { ...song, userId, createdAt: serverTimestamp() };
   await setDoc(songRef, fullSong);
   return fullSong;
 };
 
-export const manualUpdateUser = async (userId: string, data: Partial<UserProfile>) => {
-  const userRef = doc(db, 'users', userId);
-  await updateDoc(userRef, data);
-};
+export const manualUpdateUser = async (userId: string, data: Partial<UserProfile>) => updateDoc(doc(db, 'users', userId), data);
 
-export const unbanUser = async (userId: string) => {
-  const userRef = doc(db, 'users', userId);
-  await updateDoc(userRef, {
-    chatBannedUntil: null,
-    chatBanReason: '',
-    chatBannedAt: null,
-    chatLastViolation: '',
-    chatLastViolationAt: null,
-    chatViolationCount: 0,
-  });
-};
+export const unbanUser = async (userId: string) => updateDoc(doc(db, 'users', userId), {
+  chatBannedUntil: null,
+  chatBanReason: '',
+  chatBannedAt: null,
+  chatLastViolation: '',
+  chatLastViolationAt: null,
+  chatViolationCount: 0,
+});
 
 export const uploadSongAudio = async (userId: string, songId: string, blob: Blob) => {
   const contentType = blob.type && blob.type !== 'application/octet-stream' ? blob.type : 'audio/mpeg';
   const extension = contentType.includes('wav') ? 'wav' : contentType.includes('ogg') ? 'ogg' : 'mp3';
   const storagePath = `users/${userId}/songs/${songId}/audio.${extension}`;
   const audioRef = ref(storage, storagePath);
-
-  await uploadBytes(audioRef, blob, {
-    contentType,
-    customMetadata: {
-      userId,
-      songId,
-    },
-  });
-
-  return {
-    audioUrl: await getDownloadURL(audioRef),
-    storagePath,
-    mimeType: contentType,
-  };
+  await uploadBytes(audioRef, blob, { contentType, customMetadata: { userId, songId } });
+  return { audioUrl: await getDownloadURL(audioRef), storagePath, mimeType: contentType };
 };
 
 export const uploadPaymentProof = async (userId: string, file: File) => {
@@ -509,18 +405,6 @@ export const uploadPaymentProof = async (userId: string, file: File) => {
   const proofId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const storagePath = `users/${userId}/payment-proofs/${proofId}-${safeName}`;
   const proofRef = ref(storage, storagePath);
-
-  await uploadBytes(proofRef, file, {
-    contentType,
-    customMetadata: {
-      userId,
-      originalName: file.name,
-    },
-  });
-
-  return {
-    url: await getDownloadURL(proofRef),
-    path: storagePath,
-    name: file.name,
-  };
+  await uploadBytes(proofRef, file, { contentType, customMetadata: { userId, originalName: file.name } });
+  return { url: await getDownloadURL(proofRef), path: storagePath, name: file.name };
 };
