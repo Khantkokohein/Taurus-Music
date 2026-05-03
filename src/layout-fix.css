@@ -15,7 +15,7 @@
   .studio-main-column {
     min-width: 0 !important;
     max-width: 100% !important;
-    overflow: hidden !important;
+    overflow: visible !important;
   }
 
   main > div.grid > aside,
@@ -35,12 +35,42 @@
 
 main section [class*="rounded-3xl"] {
   max-width: 100%;
+  overflow: hidden;
 }
 
 main section [class*="rounded-3xl"] p {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 100%;
+}
+
+main section div[class*="sm:justify-between"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  column-gap: 16px !important;
+}
+
+main section div[class*="sm:justify-between"] > div:first-child {
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+main section div[class*="sm:justify-between"] > div:last-child {
+  display: flex !important;
+  flex-shrink: 0 !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  position: relative !important;
+  z-index: 30 !important;
+}
+
+main section div[class*="sm:justify-between"] > div:last-child button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
 }
 
 main section [class*="rounded-3xl"] .flex.gap-2 {
