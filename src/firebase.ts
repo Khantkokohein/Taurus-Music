@@ -10,17 +10,17 @@ export const auth = getAuth(app);
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 
-export const FREE_STARTER_CREDITS = 10;
-export const FREE_DAILY_CREDIT_CAP = 5;
+export const FREE_STARTER_CREDITS = 60;
+export const FREE_DAILY_CREDIT_CAP = 60;
 export const PREMIUM_MONTHLY_CREDITS = 150;
-export const GENERATE_TWO_SONGS_COST = 2;
+export const GENERATE_TWO_SONGS_COST = 10;
 export const CHAT_BAN_THRESHOLD = 3;
 export const CHAT_BAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 export const LYRIA_SONG_API_COST_USD = 0.08;
 export const OWNER_EMAIL = 'koheinkhantko51@gmail.com';
 export const UNLIMITED_REMAINING = Number.MAX_SAFE_INTEGER;
 export const TAURUS_COIN_PER_USDT = 100;
-export const SONG_CREDIT_COST = 100;
+export const SONG_CREDIT_COST = GENERATE_TWO_SONGS_COST;
 export const DEFAULT_API_RATE_LIMIT_PER_MINUTE = 60;
 
 export const isOwnerEmail = (email?: string | null) => (
@@ -76,7 +76,7 @@ const createPlan = (
 });
 
 export const PLAN_CONFIGS: Record<UserTier, PlanConfig> = {
-  free: createPlan('free', 'Free Starter', 0, FREE_DAILY_CREDIT_CAP, FREE_STARTER_CREDITS),
+  free: createPlan('free', 'Free Starter', 0, FREE_STARTER_CREDITS, FREE_STARTER_CREDITS),
   personal: createPlan('personal', 'Top Up 50', 3.75, 50, 50, 0, 'Credits top-up'),
   pro: createPlan('pro', 'Top Up 100', 6.75, 100, 100, 0, 'Credits top-up'),
   prime: createPlan('prime', 'Top Up 300', 17.25, 300, 300, 0, 'Credits top-up'),

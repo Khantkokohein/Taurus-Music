@@ -5,7 +5,7 @@ import { AlertCircle, CheckCircle2, Clock3, Code2, CreditCard, Download, History
 import DeveloperHub from './components/DeveloperHub';
 import TaurusLandingPage from './components/TaurusLandingPage';
 import TaurusVoiceHub from './components/TaurusVoiceHub';
-import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, consumeGenerationCredit, requestManualPayment, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadPaymentProof, getEffectivePlanConfig, getTimestampMillis, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, UserProfile, UserTier } from './firebase';
+import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, consumeGenerationCredit, requestManualPayment, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadPaymentProof, getEffectivePlanConfig, getTimestampMillis, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, GENERATE_TWO_SONGS_COST, UserProfile, UserTier } from './firebase';
 
 interface Song { id: string; userId?: string; idea: string; prompt: string; audioUrl: string; storagePath?: string; mimeType?: string; lyrics: string; createdAt: number; }
 type GenerateResponse = { audioBase64: string; mimeType?: string; lyrics?: string; model?: string; };
@@ -27,10 +27,10 @@ const STRUCTURES = ['3:00 Studio Map', 'Rap Hook Map', 'Cinematic Build', 'Chill
 const STUDIO_PAGES: StudioPage[] = ['landing', 'create', 'history', 'wallet', 'plans'];
 const STUDIO_PANELS: Array<Exclude<StudioPanel, null>> = ['voice', 'developers', 'admin'];
 const PACKAGES: Array<{ id: UserTier; title: string; credits: string; price: string }> = [
-  { id: 'personal', title: 'Top Up 50', credits: '50', price: '3.75 USDT' },
-  { id: 'pro', title: 'Top Up 100', credits: '100', price: '6.75 USDT' },
-  { id: 'prime', title: 'Top Up 300', credits: '300', price: '17.25 USDT' },
-  { id: 'premium', title: 'Premium', credits: '150 / month', price: '12.25 USDT' },
+  { id: 'personal', title: 'Top Up 50', credits: '50 credits / 5 creates', price: '3.75 USDT' },
+  { id: 'pro', title: 'Top Up 100', credits: '100 credits / 10 creates', price: '6.75 USDT' },
+  { id: 'prime', title: 'Top Up 300', credits: '300 credits / 30 creates', price: '17.25 USDT' },
+  { id: 'premium', title: 'Premium', credits: '150 credits / 15 creates / month', price: '12.25 USDT' },
 ];
 
 const postJson = async <T,>(url: string, body: Record<string, unknown>): Promise<T> => {
@@ -143,7 +143,7 @@ export default function AppStudio() {
   const monthlyUsed = profile?.songsUsedThisMonth || 0;
   const dailyUsed = profile?.dailyGenerationCount || 0;
   const credits = owner ? '∞' : String(Math.max(monthlyLimit - monthlyUsed, 0));
-  const daily = owner ? '∞' : plan.id === 'free' ? String(Math.max(5 - dailyUsed, 0)) : 'No cap';
+  const daily = owner ? '∞' : plan.id === 'free' ? `${Math.max(monthlyLimit - monthlyUsed, 0)}/month` : 'No cap';
   const admin = owner || profile?.role === 'admin';
   const taurusId = profile?.taurusId || (user ? buildTaurusAccountCode(user.uid) : '');
   const filtered = useMemo(() => history.filter(s => `${s.idea} ${s.prompt}`.toLowerCase().includes(search.toLowerCase())), [history, search]);
@@ -213,8 +213,8 @@ export default function AppStudio() {
     if (!idea.trim() && !lyrics.trim()) return setError('Add idea or lyrics.');
     setIsGenerating(true); setError(null);
     try {
-      setProgress('Checking 2 credits...');
-      const usage = await consumeGenerationCredit(user.uid, 2);
+      setProgress(`Checking ${GENERATE_TWO_SONGS_COST} credits...`);
+      const usage = await consumeGenerationCredit(user.uid, GENERATE_TWO_SONGS_COST);
       if (!usage.allowed) throw new Error(`Not enough credits. Remaining: ${usage.remaining}.`);
       for (const version of ['A', 'B'] as const) {
         setProgress(`Generating Version ${version}...`);
@@ -282,7 +282,7 @@ export default function AppStudio() {
       <aside className="hidden w-72 border-r border-white/10 bg-[#0b0a08]/95 p-6 lg:block">
         <div className="flex items-center gap-3"><div className="grid h-12 w-12 place-items-center rounded-2xl bg-[#D4A94514] text-[#D4A945]"><Music/></div><div><h1 className="text-xl font-black tracking-wide">Taurus</h1><p className="text-xs text-zinc-500">Studio Music OS</p></div></div>
         <nav className="mt-10 space-y-2 text-sm">{(['landing','create','history','wallet','plans'] as StudioPage[]).map(x => <button key={x} onClick={() => navigatePage(x)} className={`w-full rounded-2xl px-4 py-3 text-left font-bold capitalize transition-colors ${activePage===x?'bg-[#D4A945] text-black':'bg-white/[0.04] text-zinc-300 hover:bg-white/[0.07] hover:text-white'}`}>{x}</button>)}<button onClick={() => openPanel('voice')} className="flex w-full items-center gap-2 rounded-2xl border border-[#D4A94522] bg-[#D4A9450d] px-4 py-3 text-left font-bold text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black"><Mic2 className="h-4 w-4"/>Taurus Voice</button><button onClick={() => openPanel('developers')} className="flex w-full items-center gap-2 rounded-2xl bg-white/[0.04] px-4 py-3 text-left font-bold transition-colors hover:bg-white/[0.07]"><Code2 className="h-4 w-4"/>Developers</button>{admin && <button onClick={() => openPanel('admin')} className="w-full rounded-2xl border border-[#D4A94522] bg-[#D4A94514] px-4 py-3 text-left font-bold text-[#D4A945]">Admin</button>}</nav>
-        <div className="mt-10 rounded-3xl border border-white/10 bg-black/30 p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-[#D4A945]">Plan</p><p className="mt-2 font-semibold">{owner ? 'Owner Unlimited' : plan.name}</p>{taurusId && <p className="mt-1 font-mono text-xs text-zinc-500">{taurusId}</p>}<p className="text-sm text-zinc-400">Credits: {credits}</p><p className="text-sm text-zinc-400">Daily: {daily}</p></div>
+        <div className="mt-10 rounded-3xl border border-white/10 bg-black/30 p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-[#D4A945]">Plan</p><p className="mt-2 font-semibold">{owner ? 'Owner Unlimited' : plan.name}</p>{taurusId && <p className="mt-1 font-mono text-xs text-zinc-500">{taurusId}</p>}<p className="text-sm text-zinc-400">Credits: {credits}</p><p className="text-sm text-zinc-400">Free month: {daily}</p></div>
       </aside>
       <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">
         <header className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div className="relative max-w-xl flex-1"><Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search songs..." className="w-full rounded-2xl border border-white/10 bg-black/30 py-3 pl-11 pr-4 outline-none transition-colors focus:border-[#D4A94588]"/></div><div className="flex gap-3"><div className="rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-3 text-sm font-bold text-[#D4A945]"><Wallet className="mr-2 inline h-4 w-4"/>{credits}</div>{user ? <button onClick={logout} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold transition-colors hover:text-white"><LogOut className="mr-2 inline h-4 w-4"/>Logout</button> : <button onClick={signInWithGoogle} className="rounded-2xl bg-[#D4A945] px-4 py-3 text-sm font-black text-black transition-colors hover:bg-[#e6bd5b]"><UserIcon className="mr-2 inline h-4 w-4"/>Gmail</button>}</div></header>
@@ -344,7 +344,7 @@ export default function AppStudio() {
 
               <div className="relative mt-6 flex flex-col gap-3 rounded-[1.75rem] border border-[#D4A94533] bg-[#D4A9450d] p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div><p className="text-sm font-black text-white">Studio render queue</p><p className="mt-1 text-xs text-zinc-500">{progress}</p></div>
-                <button onClick={generate} disabled={isGenerating || !user} className="rounded-2xl bg-[#D4A945] px-6 py-4 font-black text-black transition-colors hover:bg-[#e6bd5b] disabled:opacity-50">{isGenerating ? <Loader2 className="mr-2 inline h-5 w-5 animate-spin"/> : <Sparkles className="mr-2 inline h-5 w-5"/>}Generate 2</button>
+                <button onClick={generate} disabled={isGenerating || !user} className="rounded-2xl bg-[#D4A945] px-6 py-4 font-black text-black transition-colors hover:bg-[#e6bd5b] disabled:opacity-50">{isGenerating ? <Loader2 className="mr-2 inline h-5 w-5 animate-spin"/> : <Sparkles className="mr-2 inline h-5 w-5"/>}Generate 2 · {GENERATE_TWO_SONGS_COST} credits</button>
               </div>
             </div>
           </div>}
@@ -353,11 +353,11 @@ export default function AppStudio() {
             <h3 className="text-xl font-black">Studio Monitor</h3>
             <div className="mt-5 space-y-4">
               <div className="rounded-3xl border border-[#D4A94533] bg-[#D4A9450d] p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-[#D4A945]">Credits</p><p className="mt-2 text-2xl font-black text-white">{credits}</p></div>
-              <div className="grid grid-cols-2 gap-3"><div className="rounded-3xl bg-black/30 p-4"><p className="text-xs text-zinc-500">Daily</p><p className="mt-1 text-xl font-black">{daily}</p></div><div className="rounded-3xl bg-black/30 p-4"><p className="text-xs text-zinc-500">Songs</p><p className="mt-1 text-xl font-black">{history.length}</p></div></div>
+              <div className="grid grid-cols-2 gap-3"><div className="rounded-3xl bg-black/30 p-4"><p className="text-xs text-zinc-500">Free month</p><p className="mt-1 text-xl font-black">{daily}</p></div><div className="rounded-3xl bg-black/30 p-4"><p className="text-xs text-zinc-500">Songs</p><p className="mt-1 text-xl font-black">{history.length}</p></div></div>
               <div className="rounded-3xl border border-white/10 bg-black/30 p-4"><p className="text-xs font-black uppercase tracking-[0.22em] text-zinc-500">Signal Chain</p><div className="mt-3 space-y-2 text-sm text-zinc-400"><p>Prompt &gt; Lyrics &gt; Style</p><p>Voice &gt; Arrangement &gt; Master</p><p>Save &gt; History &gt; Export</p></div></div>
               <button onClick={() => openPanel('voice')} className="w-full rounded-2xl border border-[#D4A94555] bg-transparent px-4 py-3 text-sm font-black text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black"><Mic2 className="mr-2 inline h-4 w-4"/>Open Taurus Voice</button>
             </div>
-          </div>}{activePage === 'wallet' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-2xl font-bold"><Wallet className="mr-2 inline h-5 w-5"/>Wallet</h3><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Credits</p><p className="mt-1 text-2xl font-bold">{credits}</p></div><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Daily</p><p className="mt-1 text-2xl font-bold">{daily}</p></div></div>{expiry>0 && <p className="mt-2 text-xs text-zinc-500">Expires {formatDate(expiry)}</p>}</div>}{activePage === 'plans' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-xl font-bold"><CreditCard className="mr-2 inline h-5 w-5"/>Plans</h3><div className="mt-4 grid gap-3">{PACKAGES.map(p => <button key={p.id} onClick={() => setTier(p.id)} className={`rounded-3xl border p-4 text-left ${tier===p.id?'border-[#D4A945] bg-[#D4A94514]':'border-white/10 bg-black/20'}`}><div className="flex justify-between"><p className="font-semibold">{p.title}</p><p>{p.price}</p></div><p className="text-sm text-zinc-400">{p.credits} credits</p></button>)}</div><label className="mt-4 block rounded-3xl border border-dashed border-white/15 p-4 text-sm text-zinc-400"><Upload className="mr-2 inline h-4 w-4"/>Receipt only<input type="file" accept="image/*" onChange={e => setProofFile(e.target.files?.[0] || null)} className="mt-3 block w-full text-xs"/></label><button onClick={submitPayment} disabled={!user || submitting} className="mt-4 w-full rounded-3xl bg-white px-5 py-3 font-semibold text-zinc-950 disabled:opacity-50">{submitting ? <Loader2 className="mr-2 inline h-4 w-4 animate-spin"/> : <CheckCircle2 className="mr-2 inline h-4 w-4"/>}Admin Confirm</button></div>}</aside>
+          </div>}{activePage === 'wallet' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-2xl font-bold"><Wallet className="mr-2 inline h-5 w-5"/>Wallet</h3><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Credits</p><p className="mt-1 text-2xl font-bold">{credits}</p></div><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Free month</p><p className="mt-1 text-2xl font-bold">{daily}</p></div></div>{expiry>0 && <p className="mt-2 text-xs text-zinc-500">Expires {formatDate(expiry)}</p>}</div>}{activePage === 'plans' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-xl font-bold"><CreditCard className="mr-2 inline h-5 w-5"/>Plans</h3><div className="mt-4 grid gap-3">{PACKAGES.map(p => <button key={p.id} onClick={() => setTier(p.id)} className={`rounded-3xl border p-4 text-left ${tier===p.id?'border-[#D4A945] bg-[#D4A94514]':'border-white/10 bg-black/20'}`}><div className="flex justify-between gap-3"><p className="font-semibold">{p.title}</p><p>{p.price}</p></div><p className="text-sm text-zinc-400">{p.credits}</p></button>)}</div><label className="mt-4 block rounded-3xl border border-dashed border-white/15 p-4 text-sm text-zinc-400"><Upload className="mr-2 inline h-4 w-4"/>Receipt only<input type="file" accept="image/*" onChange={e => setProofFile(e.target.files?.[0] || null)} className="mt-3 block w-full text-xs"/></label><button onClick={submitPayment} disabled={!user || submitting} className="mt-4 w-full rounded-3xl bg-white px-5 py-3 font-semibold text-zinc-950 disabled:opacity-50">{submitting ? <Loader2 className="mr-2 inline h-4 w-4 animate-spin"/> : <CheckCircle2 className="mr-2 inline h-4 w-4"/>}Admin Confirm</button></div>}</aside>
         </div>
       </main>
     </div>
