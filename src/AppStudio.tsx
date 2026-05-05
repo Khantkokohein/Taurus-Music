@@ -10,6 +10,12 @@ import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, 
 interface Song { id: string; userId?: string; idea: string; prompt: string; audioUrl: string; storagePath?: string; mimeType?: string; lyrics: string; createdAt: number; }
 type GenerateResponse = { audioBase64: string; mimeType?: string; lyrics?: string; model?: string; };
 type StudioPage = 'landing' | 'create' | 'history' | 'wallet' | 'plans';
+type StudioPanel = 'voice' | 'developers' | 'admin' | null;
+
+interface StudioRoute {
+  page: StudioPage;
+  panel: StudioPanel;
+}
 
 const GENRES = ['Rap', 'Motivation', 'Chill Rap', 'Pop', 'Hip-hop', 'Cinematic', 'Myanmar'];
 const MOODS = ['Motivation', 'Chill', 'Romantic', 'Sad', 'Epic'];
@@ -18,6 +24,8 @@ const SINGERS = ['Male', 'Female', 'Duet'];
 const LANGS = ['Burmese', 'English', 'Burmese + English'];
 const QUALITY = ['Taurus Studio', 'Taurus Apex', 'Taurus Custom'];
 const STRUCTURES = ['3:00 Studio Map', 'Rap Hook Map', 'Cinematic Build', 'Chill Loop'];
+const STUDIO_PAGES: StudioPage[] = ['landing', 'create', 'history', 'wallet', 'plans'];
+const STUDIO_PANELS: Array<Exclude<StudioPanel, null>> = ['voice', 'developers', 'admin'];
 const PACKAGES: Array<{ id: UserTier; title: string; credits: string; price: string }> = [
   { id: 'personal', title: 'Top Up 50', credits: '50', price: '3.75 USDT' },
   { id: 'pro', title: 'Top Up 100', credits: '100', price: '6.75 USDT' },
@@ -40,6 +48,21 @@ const audioBase64ToBlob = (audioBase64: string, mimeType?: string) => {
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
   return new Blob([bytes], { type: mimeType && mimeType !== 'application/octet-stream' ? mimeType : 'audio/mpeg' });
 };
+
+const isStudioPage = (value: string): value is StudioPage => STUDIO_PAGES.includes(value as StudioPage);
+const isStudioPanel = (value: string): value is Exclude<StudioPanel, null> => STUDIO_PANELS.includes(value as Exclude<StudioPanel, null>);
+
+const readStudioRoute = (): StudioRoute => {
+  if (typeof window === 'undefined') return { page: 'landing', panel: null };
+  const [rawPage, rawPanel] = window.location.hash.replace(/^#/, '').split('/');
+  if (window.location.pathname === '/admin') return { page: 'create', panel: 'admin' };
+  return {
+    page: rawPage && isStudioPage(rawPage) ? rawPage : 'landing',
+    panel: rawPanel && isStudioPanel(rawPanel) ? rawPanel : null,
+  };
+};
+
+const routeHash = (route: StudioRoute) => `#${route.page}${route.panel ? `/${route.panel}` : ''}`;
 
 const formatDate = (value: number) => new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(value);
 const compactTitle = (idea: string, mood: string, genre: string, v: string) => `${idea.replace(/3[- ]?minute|create|song|about/gi, '').replace(/[^a-zA-Z0-9\u1000-\u109F\s-]/g, '').trim().split(/\s+/).slice(0, 5).join(' ') || `${mood} ${genre}`} (${v})`;
@@ -95,6 +118,24 @@ export default function AppStudio() {
   const [structure, setStructure] = useState('3:00 Studio Map');
   const audioRef = useRef(new Audio());
 
+  const applyRoute = (route: StudioRoute) => {
+    setActivePage(route.page);
+    setShowVoiceHub(route.panel === 'voice');
+    setShowDeveloperHub(route.panel === 'developers');
+    setShowAdmin(route.panel === 'admin');
+  };
+
+  const writeRoute = (route: StudioRoute, mode: 'push' | 'replace' = 'push') => {
+    const nextState = { ...(window.history.state || {}), taurusRoute: route };
+    if (mode === 'replace') window.history.replaceState(nextState, '', routeHash(route));
+    else window.history.pushState(nextState, '', routeHash(route));
+    applyRoute(route);
+  };
+
+  const navigatePage = (page: StudioPage) => writeRoute({ page, panel: null });
+  const openPanel = (panel: Exclude<StudioPanel, null>) => writeRoute({ page: activePage, panel });
+  const closePanel = () => writeRoute({ page: activePage, panel: null }, 'replace');
+
   const owner = isOwnerEmail(user?.email) || isOwnerProfile(profile);
   const expired = isSubscriptionExpired(profile);
   const plan = getEffectivePlanConfig(profile);
@@ -106,6 +147,16 @@ export default function AppStudio() {
   const admin = owner || profile?.role === 'admin';
   const taurusId = profile?.taurusId || (user ? buildTaurusAccountCode(user.uid) : '');
   const filtered = useMemo(() => history.filter(s => `${s.idea} ${s.prompt}`.toLowerCase().includes(search.toLowerCase())), [history, search]);
+
+  useEffect(() => {
+    const initialRoute = readStudioRoute();
+    window.history.replaceState({ ...(window.history.state || {}), taurusRoute: initialRoute }, '', routeHash(initialRoute));
+    applyRoute(initialRoute);
+
+    const handlePopState = () => applyRoute(readStudioRoute());
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   useEffect(() => {
     let unsubProfile: (() => void) | undefined;
@@ -211,31 +262,31 @@ export default function AppStudio() {
 
   if (activePage === 'landing') {
     return <div className="min-h-screen bg-[#080812] text-zinc-100">
-      {showVoiceHub && <TaurusVoiceHub onClose={() => setShowVoiceHub(false)} onOpenStudio={() => { setShowVoiceHub(false); setActivePage('create'); }} onSelectVoice={(voiceName) => { setVoice(voiceName); setShowVoiceHub(false); setActivePage('create'); }} />}
-      {showDeveloperHub && <DeveloperHub currentUser={user} profile={profile} onClose={() => setShowDeveloperHub(false)} />}
+      {showVoiceHub && <TaurusVoiceHub onClose={closePanel} onOpenStudio={() => navigatePage('create')} onSelectVoice={(voiceName) => { setVoice(voiceName); navigatePage('create'); }} />}
+      {showDeveloperHub && <DeveloperHub currentUser={user} profile={profile} onClose={closePanel} />}
       <TaurusLandingPage
-        onEnterStudio={() => setActivePage('create')}
-        onOpenVoice={() => setShowVoiceHub(true)}
-        onOpenDevelopers={() => setShowDeveloperHub(true)}
-        onOpenWallet={() => setActivePage('wallet')}
+        onEnterStudio={() => navigatePage('create')}
+        onOpenVoice={() => openPanel('voice')}
+        onOpenDevelopers={() => openPanel('developers')}
+        onOpenWallet={() => navigatePage('wallet')}
         onLogin={() => signInWithGoogle()}
       />
     </div>;
   }
 
   return <div className="min-h-screen bg-[#070707] text-zinc-100">
-    {showVoiceHub && <TaurusVoiceHub onClose={() => setShowVoiceHub(false)} onOpenStudio={() => setShowVoiceHub(false)} onSelectVoice={(voiceName) => { setVoice(voiceName); setShowVoiceHub(false); }} />}
-    {showDeveloperHub && <DeveloperHub currentUser={user} profile={profile} onClose={() => setShowDeveloperHub(false)} />}
+    {showVoiceHub && <TaurusVoiceHub onClose={closePanel} onOpenStudio={closePanel} onSelectVoice={(voiceName) => { setVoice(voiceName); closePanel(); }} />}
+    {showDeveloperHub && <DeveloperHub currentUser={user} profile={profile} onClose={closePanel} />}
     <div className="fixed inset-0 overflow-hidden pointer-events-none"><div className="absolute -left-24 top-16 h-72 w-72 rounded-full bg-[#D4A945]/10 blur-3xl"/><div className="absolute right-10 top-28 h-96 w-96 rounded-full bg-white/[0.04] blur-3xl"/></div>
     <div className="relative flex min-h-screen">
       <aside className="hidden w-72 border-r border-white/10 bg-[#0b0a08]/95 p-6 lg:block">
         <div className="flex items-center gap-3"><div className="grid h-12 w-12 place-items-center rounded-2xl bg-[#D4A94514] text-[#D4A945]"><Music/></div><div><h1 className="text-xl font-black tracking-wide">Taurus</h1><p className="text-xs text-zinc-500">Studio Music OS</p></div></div>
-        <nav className="mt-10 space-y-2 text-sm">{(['landing','create','history','wallet','plans'] as StudioPage[]).map(x => <button key={x} onClick={() => setActivePage(x)} className={`w-full rounded-2xl px-4 py-3 text-left font-bold capitalize transition-colors ${activePage===x?'bg-[#D4A945] text-black':'bg-white/[0.04] text-zinc-300 hover:bg-white/[0.07] hover:text-white'}`}>{x}</button>)}<button onClick={() => setShowVoiceHub(true)} className="flex w-full items-center gap-2 rounded-2xl border border-[#D4A94522] bg-[#D4A9450d] px-4 py-3 text-left font-bold text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black"><Mic2 className="h-4 w-4"/>Taurus Voice</button><button onClick={() => setShowDeveloperHub(true)} className="flex w-full items-center gap-2 rounded-2xl bg-white/[0.04] px-4 py-3 text-left font-bold transition-colors hover:bg-white/[0.07]"><Code2 className="h-4 w-4"/>Developers</button>{admin && <button onClick={() => setShowAdmin(true)} className="w-full rounded-2xl border border-[#D4A94522] bg-[#D4A94514] px-4 py-3 text-left font-bold text-[#D4A945]">Admin</button>}</nav>
+        <nav className="mt-10 space-y-2 text-sm">{(['landing','create','history','wallet','plans'] as StudioPage[]).map(x => <button key={x} onClick={() => navigatePage(x)} className={`w-full rounded-2xl px-4 py-3 text-left font-bold capitalize transition-colors ${activePage===x?'bg-[#D4A945] text-black':'bg-white/[0.04] text-zinc-300 hover:bg-white/[0.07] hover:text-white'}`}>{x}</button>)}<button onClick={() => openPanel('voice')} className="flex w-full items-center gap-2 rounded-2xl border border-[#D4A94522] bg-[#D4A9450d] px-4 py-3 text-left font-bold text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black"><Mic2 className="h-4 w-4"/>Taurus Voice</button><button onClick={() => openPanel('developers')} className="flex w-full items-center gap-2 rounded-2xl bg-white/[0.04] px-4 py-3 text-left font-bold transition-colors hover:bg-white/[0.07]"><Code2 className="h-4 w-4"/>Developers</button>{admin && <button onClick={() => openPanel('admin')} className="w-full rounded-2xl border border-[#D4A94522] bg-[#D4A94514] px-4 py-3 text-left font-bold text-[#D4A945]">Admin</button>}</nav>
         <div className="mt-10 rounded-3xl border border-white/10 bg-black/30 p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-[#D4A945]">Plan</p><p className="mt-2 font-semibold">{owner ? 'Owner Unlimited' : plan.name}</p>{taurusId && <p className="mt-1 font-mono text-xs text-zinc-500">{taurusId}</p>}<p className="text-sm text-zinc-400">Credits: {credits}</p><p className="text-sm text-zinc-400">Daily: {daily}</p></div>
       </aside>
       <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">
         <header className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div className="relative max-w-xl flex-1"><Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search songs..." className="w-full rounded-2xl border border-white/10 bg-black/30 py-3 pl-11 pr-4 outline-none transition-colors focus:border-[#D4A94588]"/></div><div className="flex gap-3"><div className="rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-3 text-sm font-bold text-[#D4A945]"><Wallet className="mr-2 inline h-4 w-4"/>{credits}</div>{user ? <button onClick={logout} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold transition-colors hover:text-white"><LogOut className="mr-2 inline h-4 w-4"/>Logout</button> : <button onClick={signInWithGoogle} className="rounded-2xl bg-[#D4A945] px-4 py-3 text-sm font-black text-black transition-colors hover:bg-[#e6bd5b]"><UserIcon className="mr-2 inline h-4 w-4"/>Gmail</button>}</div></header>
-        <div className="mb-6 flex gap-2 overflow-x-auto pb-1 lg:hidden">{(['landing','create','history','wallet','plans'] as StudioPage[]).map(x => <button key={x} onClick={() => setActivePage(x)} className={`shrink-0 rounded-2xl px-4 py-2 text-xs font-bold capitalize ${activePage===x?'bg-[#D4A945] text-black':'border border-white/10 bg-white/[0.04] text-zinc-300'}`}>{x}</button>)}<button onClick={() => setShowVoiceHub(true)} className="shrink-0 rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-2 text-xs font-bold text-[#D4A945]">Voice</button><button onClick={() => setShowDeveloperHub(true)} className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-bold">API</button></div>
+        <div className="mb-6 flex gap-2 overflow-x-auto pb-1 lg:hidden">{(['landing','create','history','wallet','plans'] as StudioPage[]).map(x => <button key={x} onClick={() => navigatePage(x)} className={`shrink-0 rounded-2xl px-4 py-2 text-xs font-bold capitalize ${activePage===x?'bg-[#D4A945] text-black':'border border-white/10 bg-white/[0.04] text-zinc-300'}`}>{x}</button>)}<button onClick={() => openPanel('voice')} className="shrink-0 rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-2 text-xs font-bold text-[#D4A945]">Voice</button><button onClick={() => openPanel('developers')} className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-bold">API</button></div>
         {error && <div className="mb-5 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200"><AlertCircle className="mr-2 inline h-4 w-4"/>{error}</div>}
         <div className="grid min-w-0 gap-6 xl:grid-cols-[1fr_360px]">
           <section className="min-w-0 space-y-6">{activePage === 'create' && <div className="min-w-0 overflow-hidden rounded-[2rem] border border-white/10 bg-[#11100d]/95 shadow-2xl shadow-black/40">
@@ -304,12 +355,12 @@ export default function AppStudio() {
               <div className="rounded-3xl border border-[#D4A94533] bg-[#D4A9450d] p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-[#D4A945]">Credits</p><p className="mt-2 text-2xl font-black text-white">{credits}</p></div>
               <div className="grid grid-cols-2 gap-3"><div className="rounded-3xl bg-black/30 p-4"><p className="text-xs text-zinc-500">Daily</p><p className="mt-1 text-xl font-black">{daily}</p></div><div className="rounded-3xl bg-black/30 p-4"><p className="text-xs text-zinc-500">Songs</p><p className="mt-1 text-xl font-black">{history.length}</p></div></div>
               <div className="rounded-3xl border border-white/10 bg-black/30 p-4"><p className="text-xs font-black uppercase tracking-[0.22em] text-zinc-500">Signal Chain</p><div className="mt-3 space-y-2 text-sm text-zinc-400"><p>Prompt &gt; Lyrics &gt; Style</p><p>Voice &gt; Arrangement &gt; Master</p><p>Save &gt; History &gt; Export</p></div></div>
-              <button onClick={() => setShowVoiceHub(true)} className="w-full rounded-2xl border border-[#D4A94555] bg-transparent px-4 py-3 text-sm font-black text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black"><Mic2 className="mr-2 inline h-4 w-4"/>Open Taurus Voice</button>
+              <button onClick={() => openPanel('voice')} className="w-full rounded-2xl border border-[#D4A94555] bg-transparent px-4 py-3 text-sm font-black text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black"><Mic2 className="mr-2 inline h-4 w-4"/>Open Taurus Voice</button>
             </div>
           </div>}{activePage === 'wallet' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-2xl font-bold"><Wallet className="mr-2 inline h-5 w-5"/>Wallet</h3><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Credits</p><p className="mt-1 text-2xl font-bold">{credits}</p></div><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Daily</p><p className="mt-1 text-2xl font-bold">{daily}</p></div></div>{expiry>0 && <p className="mt-2 text-xs text-zinc-500">Expires {formatDate(expiry)}</p>}</div>}{activePage === 'plans' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-xl font-bold"><CreditCard className="mr-2 inline h-5 w-5"/>Plans</h3><div className="mt-4 grid gap-3">{PACKAGES.map(p => <button key={p.id} onClick={() => setTier(p.id)} className={`rounded-3xl border p-4 text-left ${tier===p.id?'border-[#D4A945] bg-[#D4A94514]':'border-white/10 bg-black/20'}`}><div className="flex justify-between"><p className="font-semibold">{p.title}</p><p>{p.price}</p></div><p className="text-sm text-zinc-400">{p.credits} credits</p></button>)}</div><label className="mt-4 block rounded-3xl border border-dashed border-white/15 p-4 text-sm text-zinc-400"><Upload className="mr-2 inline h-4 w-4"/>Receipt only<input type="file" accept="image/*" onChange={e => setProofFile(e.target.files?.[0] || null)} className="mt-3 block w-full text-xs"/></label><button onClick={submitPayment} disabled={!user || submitting} className="mt-4 w-full rounded-3xl bg-white px-5 py-3 font-semibold text-zinc-950 disabled:opacity-50">{submitting ? <Loader2 className="mr-2 inline h-4 w-4 animate-spin"/> : <CheckCircle2 className="mr-2 inline h-4 w-4"/>}Admin Confirm</button></div>}</aside>
         </div>
       </main>
     </div>
-    {showAdmin && admin && <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"><div className="max-h-[90vh] w-full max-w-5xl overflow-auto rounded-[2rem] border border-white/10 bg-[#0c0c18] p-6"><div className="mb-5 flex items-center justify-between"><h2 className="text-2xl font-bold"><Settings className="mr-2 inline h-5 w-5"/>Admin</h2><button onClick={() => setShowAdmin(false)} className="rounded-2xl border border-white/10 px-4 py-2">Close</button></div>{pendingUsers.length===0 && <p className="rounded-2xl border border-white/10 p-4 text-sm text-zinc-400"><Clock3 className="mr-2 inline h-4 w-4"/>No pending payments.</p>}{pendingUsers.map(u => <div key={u.uid} className="mb-3 rounded-3xl border border-white/10 p-4"><p className="font-semibold">{u.email}</p><p className="text-sm text-zinc-400">{PLAN_CONFIGS[u.requestedTier || 'premium']?.name}</p>{u.paymentProofUrl && <a href={u.paymentProofUrl} target="_blank" rel="noreferrer" className="text-violet-300 underline">View proof</a>}<div className="mt-3 flex gap-2"><button onClick={() => approvePayment(u.uid, u.requestedTier || 'premium')} className="rounded-2xl bg-emerald-500 px-4 py-2">Approve</button><button onClick={() => rejectPayment(u.uid, 'Receipt not confirmed')} className="rounded-2xl bg-red-500 px-4 py-2">Reject</button></div></div>)}</div></div>}
+    {showAdmin && admin && <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"><div className="max-h-[90vh] w-full max-w-5xl overflow-auto rounded-[2rem] border border-white/10 bg-[#0c0c18] p-6"><div className="mb-5 flex items-center justify-between"><h2 className="text-2xl font-bold"><Settings className="mr-2 inline h-5 w-5"/>Admin</h2><button onClick={closePanel} className="rounded-2xl border border-white/10 px-4 py-2">Close</button></div>{pendingUsers.length===0 && <p className="rounded-2xl border border-white/10 p-4 text-sm text-zinc-400"><Clock3 className="mr-2 inline h-4 w-4"/>No pending payments.</p>}{pendingUsers.map(u => <div key={u.uid} className="mb-3 rounded-3xl border border-white/10 p-4"><p className="font-semibold">{u.email}</p><p className="text-sm text-zinc-400">{PLAN_CONFIGS[u.requestedTier || 'premium']?.name}</p>{u.paymentProofUrl && <a href={u.paymentProofUrl} target="_blank" rel="noreferrer" className="text-violet-300 underline">View proof</a>}<div className="mt-3 flex gap-2"><button onClick={() => approvePayment(u.uid, u.requestedTier || 'premium')} className="rounded-2xl bg-emerald-500 px-4 py-2">Approve</button><button onClick={() => rejectPayment(u.uid, 'Receipt not confirmed')} className="rounded-2xl bg-red-500 px-4 py-2">Reject</button></div></div>)}</div></div>}
   </div>;
 }
