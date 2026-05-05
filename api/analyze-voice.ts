@@ -1,5 +1,5 @@
 const VOICE_MODEL = process.env.GEMINI_VOICE_MODEL || 'gemini-2.5-flash';
-const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || 'AIzaSyAg7tK7sGW6FYssUMCQzUizfgCPeJJ-4qo';
+const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || 'AIzaSyDjowhLt-pq5DKd-phnS1Hwx7tdRomJCNQ';
 
 export const config = {
   api: {

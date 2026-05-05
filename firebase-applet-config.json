@@ -1,10 +1,10 @@
 {
-  "projectId": "taurus-calling-codex",
-  "appId": "1:1029888069211:web:7eff94d132171b71fe797e",
-  "apiKey": "AIzaSyAg7tK7sGW6FYssUMCQzUizfgCPeJJ-4qo",
-  "authDomain": "taurus-calling-codex.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-9dc0d908-b11b-4173-a430-94c23ca33258",
-  "storageBucket": "taurus-calling-codex.firebasestorage.app",
-  "messagingSenderId": "1029888069211",
-  "measurementId": ""
+  "projectId": "taurus-calling",
+  "appId": "1:846393681682:web:9c39fe6c96162f4073b5cb",
+  "apiKey": "AIzaSyDjowhLt-pq5DKd-phnS1Hwx7tdRomJCNQ",
+  "authDomain": "taurus-calling.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "taurus-calling.firebasestorage.app",
+  "messagingSenderId": "846393681682",
+  "measurementId": "G-WCYFJGX30G"
 }

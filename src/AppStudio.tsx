@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, doc, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
-import { AlertCircle, CheckCircle2, Clock3, CreditCard, Download, History, Loader2, LogOut, Music, Pause, Play, Search, Settings, Sparkles, ThumbsDown, ThumbsUp, Upload, User as UserIcon, Wallet } from 'lucide-react';
-import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, consumeGenerationCredit, requestManualPayment, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadPaymentProof, getEffectivePlanConfig, getTimestampMillis, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, PLAN_CONFIGS, UserProfile, UserTier } from './firebase';
+import { AlertCircle, CheckCircle2, Clock3, Code2, CreditCard, Download, History, Loader2, LogOut, Mic2, Music, Pause, Play, Search, Settings, Sparkles, ThumbsDown, ThumbsUp, Upload, User as UserIcon, Wallet } from 'lucide-react';
+import DeveloperHub from './components/DeveloperHub';
+import TaurusVoiceHub from './components/TaurusVoiceHub';
+import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, consumeGenerationCredit, requestManualPayment, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadPaymentProof, getEffectivePlanConfig, getTimestampMillis, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, UserProfile, UserTier } from './firebase';
 
 interface Song { id: string; userId?: string; idea: string; prompt: string; audioUrl: string; storagePath?: string; mimeType?: string; lyrics: string; createdAt: number; }
 type GenerateResponse = { audioBase64: string; mimeType?: string; lyrics?: string; model?: string; };
@@ -15,10 +17,10 @@ const LANGS = ['Burmese', 'English', 'Burmese + English'];
 const QUALITY = ['Taurus Studio', 'Taurus Apex', 'Taurus Custom'];
 const STRUCTURES = ['3:00 Studio Map', 'Rap Hook Map', 'Cinematic Build', 'Chill Loop'];
 const PACKAGES: Array<{ id: UserTier; title: string; credits: string; price: string }> = [
-  { id: 'personal', title: 'Top Up 50', credits: '50', price: '15,000 MMK' },
-  { id: 'pro', title: 'Top Up 100', credits: '100', price: '27,000 MMK' },
-  { id: 'prime', title: 'Top Up 300', credits: '300', price: '69,000 MMK' },
-  { id: 'premium', title: 'Premium', credits: '150 / month', price: '39,000 MMK' },
+  { id: 'personal', title: 'Top Up 50', credits: '50', price: '3.75 USDT' },
+  { id: 'pro', title: 'Top Up 100', credits: '100', price: '6.75 USDT' },
+  { id: 'prime', title: 'Top Up 300', credits: '300', price: '17.25 USDT' },
+  { id: 'premium', title: 'Premium', credits: '150 / month', price: '12.25 USDT' },
 ];
 
 const postJson = async <T,>(url: string, body: Record<string, unknown>): Promise<T> => {
@@ -75,6 +77,8 @@ export default function AppStudio() {
   const [tier, setTier] = useState<UserTier>('premium');
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showVoiceHub, setShowVoiceHub] = useState(false);
+  const [showDeveloperHub, setShowDeveloperHub] = useState(false);
   const [search, setSearch] = useState('');
   const [idea, setIdea] = useState('Burmese motivational rap about building success from zero, never giving up, deep cold male voice, cinematic piano, strong 808.');
   const [lyrics, setLyrics] = useState('');
@@ -97,6 +101,7 @@ export default function AppStudio() {
   const credits = owner ? '∞' : String(Math.max(monthlyLimit - monthlyUsed, 0));
   const daily = owner ? '∞' : plan.id === 'free' ? String(Math.max(5 - dailyUsed, 0)) : 'No cap';
   const admin = owner || profile?.role === 'admin';
+  const taurusId = profile?.taurusId || (user ? buildTaurusAccountCode(user.uid) : '');
   const filtered = useMemo(() => history.filter(s => `${s.idea} ${s.prompt}`.toLowerCase().includes(search.toLowerCase())), [history, search]);
 
   useEffect(() => {
@@ -202,12 +207,14 @@ export default function AppStudio() {
   const expiry = getTimestampMillis(profile?.subscriptionExpiresAt);
 
   return <div className="min-h-screen bg-[#080812] text-zinc-100">
+    {showVoiceHub && <TaurusVoiceHub onClose={() => setShowVoiceHub(false)} onOpenStudio={() => setShowVoiceHub(false)} onSelectVoice={(voiceName) => { setVoice(voiceName); setShowVoiceHub(false); }} />}
+    {showDeveloperHub && <DeveloperHub currentUser={user} profile={profile} onClose={() => setShowDeveloperHub(false)} />}
     <div className="fixed inset-0 overflow-hidden pointer-events-none"><div className="absolute -left-24 top-16 h-72 w-72 rounded-full bg-violet-600/20 blur-3xl"/><div className="absolute right-10 top-28 h-96 w-96 rounded-full bg-fuchsia-600/10 blur-3xl"/></div>
     <div className="relative flex min-h-screen">
       <aside className="hidden w-72 border-r border-white/10 bg-white/[0.03] p-6 lg:block">
         <div className="flex items-center gap-3"><div className="grid h-12 w-12 place-items-center rounded-2xl bg-violet-500/20 text-violet-200"><Music/></div><div><h1 className="text-xl font-bold">Taurus</h1><p className="text-xs text-zinc-400">Your Music Agent</p></div></div>
-        <nav className="mt-10 space-y-2 text-sm">{['Create','History','Wallet','Plans'].map(x => <div key={x} className="rounded-2xl bg-white/[0.04] px-4 py-3">{x}</div>)}{admin && <button onClick={() => setShowAdmin(true)} className="w-full rounded-2xl bg-violet-500/20 px-4 py-3 text-left">Admin</button>}</nav>
-        <div className="mt-10 rounded-3xl border border-white/10 bg-black/20 p-4"><p className="text-xs text-zinc-500">PLAN</p><p className="mt-2 font-semibold">{owner ? 'Owner Unlimited' : plan.name}</p><p className="text-sm text-zinc-400">Credits: {credits}</p><p className="text-sm text-zinc-400">Daily: {daily}</p></div>
+        <nav className="mt-10 space-y-2 text-sm">{['Create','History','Wallet','Plans'].map(x => <div key={x} className="rounded-2xl bg-white/[0.04] px-4 py-3">{x}</div>)}<button onClick={() => setShowVoiceHub(true)} className="flex w-full items-center gap-2 rounded-2xl bg-violet-500/10 px-4 py-3 text-left text-violet-200"><Mic2 className="h-4 w-4"/>Taurus Voice</button><button onClick={() => setShowDeveloperHub(true)} className="flex w-full items-center gap-2 rounded-2xl bg-white/[0.04] px-4 py-3 text-left"><Code2 className="h-4 w-4"/>Developers</button>{admin && <button onClick={() => setShowAdmin(true)} className="w-full rounded-2xl bg-violet-500/20 px-4 py-3 text-left">Admin</button>}</nav>
+        <div className="mt-10 rounded-3xl border border-white/10 bg-black/20 p-4"><p className="text-xs text-zinc-500">PLAN</p><p className="mt-2 font-semibold">{owner ? 'Owner Unlimited' : plan.name}</p>{taurusId && <p className="mt-1 font-mono text-xs text-zinc-500">{taurusId}</p>}<p className="text-sm text-zinc-400">Credits: {credits}</p><p className="text-sm text-zinc-400">Daily: {daily}</p></div>
       </aside>
       <main className="flex-1 p-4 sm:p-6 lg:p-8">
         <header className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div className="relative max-w-xl flex-1"><Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search songs..." className="w-full rounded-2xl border border-white/10 bg-white/[0.04] py-3 pl-11 pr-4 outline-none"/></div><div className="flex gap-3"><div className="rounded-2xl border border-white/10 px-4 py-3 text-sm"><Wallet className="mr-2 inline h-4 w-4"/>{credits}</div>{user ? <button onClick={logout} className="rounded-2xl border border-white/10 px-4 py-3 text-sm"><LogOut className="mr-2 inline h-4 w-4"/>Logout</button> : <button onClick={signInWithGoogle} className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-zinc-950"><UserIcon className="mr-2 inline h-4 w-4"/>Gmail</button>}</div></header>

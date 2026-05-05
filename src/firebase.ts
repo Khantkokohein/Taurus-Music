@@ -19,6 +19,9 @@ export const CHAT_BAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 export const LYRIA_SONG_API_COST_USD = 0.08;
 export const OWNER_EMAIL = 'koheinkhantko51@gmail.com';
 export const UNLIMITED_REMAINING = Number.MAX_SAFE_INTEGER;
+export const TAURUS_COIN_PER_USDT = 100;
+export const SONG_CREDIT_COST = 100;
+export const DEFAULT_API_RATE_LIMIT_PER_MINUTE = 60;
 
 export const isOwnerEmail = (email?: string | null) => (
   (email || '').trim().toLowerCase() === OWNER_EMAIL
@@ -27,6 +30,14 @@ export const isOwnerEmail = (email?: string | null) => (
 export const isOwnerProfile = (profile?: { email?: string | null } | null) => (
   isOwnerEmail(profile?.email)
 );
+
+export const buildTaurusAccountCode = (uid: string) => {
+  let hash = 0;
+  for (let index = 0; index < uid.length; index += 1) {
+    hash = ((hash << 5) - hash + uid.charCodeAt(index)) >>> 0;
+  }
+  return `TRS-${hash.toString(36).toUpperCase().padStart(7, '0').slice(0, 7)}`;
+};
 
 export type UserTier = 'free' | 'personal' | 'pro' | 'prime' | 'premium';
 
@@ -93,6 +104,11 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName?: string;
+  taurusId?: string;
+  taurusNumber?: string;
+  taurusCoinBalance?: number;
+  songCreditBalance?: number;
+  apiAccessEnabled?: boolean;
   dailyGenerationCount: number;
   lastGenerationDate: string;
   credits: number;
@@ -167,10 +183,16 @@ export const createUserProfile = async (uid: string, email: string, displayName 
   const today = getTodayKey();
   const month = getMonthKey();
   const freePlan = PLAN_CONFIGS.free;
+  const taurusId = buildTaurusAccountCode(uid);
   const profile: UserProfile = {
     uid,
     email,
     displayName,
+    taurusId,
+    taurusNumber: taurusId,
+    taurusCoinBalance: 0,
+    songCreditBalance: 0,
+    apiAccessEnabled: true,
     dailyGenerationCount: 0,
     lastGenerationDate: today,
     credits: 0,
@@ -203,6 +225,13 @@ export const claimDailyPointsIfNeeded = async (uid: string, displayName = '') =>
     const plan = getEffectivePlanConfig(data);
     const updates: Partial<UserProfile> = {};
     if (!data.displayName && displayName) updates.displayName = displayName;
+    if (!data.taurusId) {
+      updates.taurusId = buildTaurusAccountCode(uid);
+      updates.taurusNumber = updates.taurusId;
+    }
+    if (typeof data.taurusCoinBalance !== 'number') updates.taurusCoinBalance = 0;
+    if (typeof data.songCreditBalance !== 'number') updates.songCreditBalance = 0;
+    if (typeof data.apiAccessEnabled !== 'boolean') updates.apiAccessEnabled = true;
     if (!data.lastPointGrantDate) updates.lastPointGrantDate = today;
     if (typeof data.points !== 'number') updates.points = FREE_STARTER_CREDITS;
     if (typeof data.totalPointsEarned !== 'number') updates.totalPointsEarned = FREE_STARTER_CREDITS;

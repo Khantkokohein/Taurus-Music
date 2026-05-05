@@ -1,5 +1,5 @@
 const LYRIA_MODEL = 'lyria-3-pro-preview';
-const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || 'AIzaSyAg7tK7sGW6FYssUMCQzUizfgCPeJJ-4qo';
+const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || 'AIzaSyDjowhLt-pq5DKd-phnS1Hwx7tdRomJCNQ';
 
 const requireFirebaseAuth = async (req: any) => {
   const authorization = req.headers?.authorization || req.headers?.Authorization || '';

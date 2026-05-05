@@ -31,6 +31,10 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    function isValidTaurusAccountCode(value) {
+      return value is string && value.matches('^TRS-[A-Z0-9]{7}$');
+    }
+
     function incoming() {
       return request.resource.data;
     }
@@ -48,7 +52,12 @@ service cloud.firestore {
         && incoming().role == existing().role
         && incoming().email == existing().email
         && incoming().credits == existing().credits
-        && incoming().tier == existing().tier;
+        && incoming().tier == existing().tier
+        && (!('taurusId' in existing()) || incoming().taurusId == existing().taurusId)
+        && (!('taurusNumber' in existing()) || incoming().taurusNumber == existing().taurusNumber)
+        && (!('taurusCoinBalance' in existing()) || incoming().taurusCoinBalance == existing().taurusCoinBalance)
+        && (!('songCreditBalance' in existing()) || incoming().songCreditBalance == existing().songCreditBalance)
+        && (!('apiAccessEnabled' in existing()) || incoming().apiAccessEnabled == existing().apiAccessEnabled);
     }
 
     function isOwnerUsageUpdate(userId) {
@@ -75,8 +84,18 @@ service cloud.firestore {
           'monthlyLimit',
           'points',
           'lastPointGrantDate',
-          'totalPointsEarned'
-        ]);
+          'totalPointsEarned',
+          'taurusId',
+          'taurusNumber',
+          'taurusCoinBalance',
+          'songCreditBalance',
+          'apiAccessEnabled'
+        ])
+        && (!('taurusId' in incoming()) || isValidTaurusAccountCode(incoming().taurusId))
+        && (!('taurusNumber' in incoming()) || incoming().taurusNumber == incoming().taurusId)
+        && (!('taurusCoinBalance' in incoming()) || ('taurusCoinBalance' in existing()) || incoming().taurusCoinBalance == 0)
+        && (!('songCreditBalance' in incoming()) || ('songCreditBalance' in existing()) || incoming().songCreditBalance == 0)
+        && (!('apiAccessEnabled' in incoming()) || ('apiAccessEnabled' in existing()) || incoming().apiAccessEnabled == true);
     }
 
     function isOwnerChatBanUpdate(userId) {
@@ -190,6 +209,63 @@ service cloud.firestore {
         && incoming().publishedAt == request.time;
     }
 
+    function hasValidApiScopes() {
+      return incoming().scopes is list
+        && incoming().scopes.size() > 0
+        && incoming().scopes.size() <= 3
+        && incoming().scopes.hasOnly(['song.generate', 'voice.use', 'lyrics.generate']);
+    }
+
+    function isDeveloperApiKeyCreate(userId) {
+      return isOwner(userId)
+        && incoming().keys().hasOnly([
+          'ownerId',
+          'name',
+          'prefix',
+          'keyHash',
+          'scopes',
+          'status',
+          'usageCount',
+          'rateLimitPerMinute',
+          'createdAt',
+          'lastUsedAt'
+        ])
+        && incoming().ownerId == request.auth.uid
+        && incoming().name is string
+        && incoming().name.size() > 0
+        && incoming().name.size() <= 80
+        && incoming().prefix is string
+        && incoming().prefix.matches('^taurus_sk_[a-f0-9]{8}$')
+        && incoming().keyHash is string
+        && incoming().keyHash.matches('^[a-f0-9]{64}$')
+        && hasValidApiScopes()
+        && incoming().status == 'active'
+        && incoming().usageCount == 0
+        && incoming().rateLimitPerMinute is int
+        && incoming().rateLimitPerMinute > 0
+        && incoming().rateLimitPerMinute <= 60
+        && incoming().createdAt == request.time
+        && incoming().lastUsedAt == null;
+    }
+
+    function isDeveloperApiKeyUpdate(userId) {
+      return isOwner(userId)
+        && incoming().ownerId == existing().ownerId
+        && incoming().prefix == existing().prefix
+        && incoming().keyHash == existing().keyHash
+        && incoming().scopes == existing().scopes
+        && incoming().usageCount == existing().usageCount
+        && incoming().rateLimitPerMinute == existing().rateLimitPerMinute
+        && incoming().createdAt == existing().createdAt
+        && incoming().lastUsedAt == existing().lastUsedAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'status', 'revokedAt'])
+        && incoming().name is string
+        && incoming().name.size() > 0
+        && incoming().name.size() <= 80
+        && (incoming().status == 'active' || incoming().status == 'revoked')
+        && (!('revokedAt' in incoming()) || incoming().revokedAt == existing().revokedAt || incoming().revokedAt == request.time);
+    }
+
     // User Profile
     match /users/{userId} {
       allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
@@ -199,6 +275,11 @@ service cloud.firestore {
           'uid',
           'email',
           'displayName',
+          'taurusId',
+          'taurusNumber',
+          'taurusCoinBalance',
+          'songCreditBalance',
+          'apiAccessEnabled',
           'dailyGenerationCount',
           'lastGenerationDate',
           'credits',
@@ -218,17 +299,30 @@ service cloud.firestore {
         ])
         && incoming().uid == request.auth.uid
         && incoming().email == request.auth.token.email
+        && (!('taurusId' in incoming()) || isValidTaurusAccountCode(incoming().taurusId))
+        && (!('taurusNumber' in incoming()) || incoming().taurusNumber == incoming().taurusId)
+        && (!('taurusCoinBalance' in incoming()) || incoming().taurusCoinBalance == 0)
+        && (!('songCreditBalance' in incoming()) || incoming().songCreditBalance == 0)
+        && (!('apiAccessEnabled' in incoming()) || incoming().apiAccessEnabled == true)
         && incoming().dailyGenerationCount == 0
         && incoming().credits == 0
         && incoming().points == 10
         && incoming().totalPointsEarned == 10
         && incoming().tier == 'free'
-        && incoming().weeklyLimit == 2
+        && incoming().weeklyLimit == 5
         && incoming().songsUsedThisWeek == 0
-        && incoming().monthlyLimit == 8
+        && incoming().monthlyLimit == 10
         && incoming().songsUsedThisMonth == 0
         && (incoming().role == 'user' || (incoming().role == 'admin' && request.auth.token.email == 'koheinkhantko51@gmail.com'));
       allow update: if isAdmin() || isOwnerUsageUpdate(userId) || isOwnerChatBanUpdate(userId);
+    }
+
+    // Developer API keys
+    match /users/{userId}/apiKeys/{apiKeyId} {
+      allow list, get: if isOwner(userId) || isAdmin();
+      allow create: if isDeveloperApiKeyCreate(userId);
+      allow update: if isAdmin() || isDeveloperApiKeyUpdate(userId);
+      allow delete: if isOwner(userId) || isAdmin();
     }
 
     // Chat messages

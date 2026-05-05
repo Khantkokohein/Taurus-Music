@@ -59,10 +59,10 @@ const STRUCTURES = [
 ];
 
 const PAYMENT_PACKAGES: Array<{ id: UserTier; title: string; credits: string; price: string; note: string }> = [
-  { id: 'personal', title: 'Top Up 50', credits: '50 credits', price: '15,000 MMK', note: 'Manual admin confirm' },
-  { id: 'pro', title: 'Top Up 100', credits: '100 credits', price: '27,000 MMK', note: 'Best starter pack' },
-  { id: 'prime', title: 'Top Up 300', credits: '300 credits', price: '69,000 MMK', note: 'High volume pack' },
-  { id: 'premium', title: 'Premium', credits: '150 credits / month', price: '39,000 MMK', note: 'Launch price' },
+  { id: 'personal', title: 'Top Up 50', credits: '50 credits', price: '3.75 USDT', note: 'Manual admin confirm' },
+  { id: 'pro', title: 'Top Up 100', credits: '100 credits', price: '6.75 USDT', note: 'Best starter pack' },
+  { id: 'prime', title: 'Top Up 300', credits: '300 credits', price: '17.25 USDT', note: 'High volume pack' },
+  { id: 'premium', title: 'Premium', credits: '150 credits / month', price: '12.25 USDT', note: 'Launch price' },
 ];
 
 const postJson = async <T,>(url: string, body: Record<string, unknown>): Promise<T> => {
