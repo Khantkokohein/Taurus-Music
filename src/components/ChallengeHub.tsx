@@ -55,25 +55,79 @@ const rules = [
   'Score = Likes + Comments + Saves. Each action is 1 point.',
 ];
 
+const studioRoomImage = 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=1200&q=85';
+
+const creatorVisuals = [
+  { name: 'Vocal Booth', role: 'Singer', image: 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=500&q=80', glow: 'from-[#D4A945]/45 via-fuchsia-500/18 to-sky-500/18' },
+  { name: 'Studio Duo', role: 'Producer', image: 'https://images.unsplash.com/photo-1521337581100-8ca9a73a5f79?auto=format&fit=crop&w=500&q=80', glow: 'from-emerald-400/30 via-[#D4A945]/28 to-violet-500/20' },
+  { name: 'Mic Room', role: 'Artist', image: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?auto=format&fit=crop&w=500&q=80', glow: 'from-pink-500/30 via-orange-400/25 to-[#D4A945]/28' },
+  { name: 'Stage Cut', role: 'Creator', image: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?auto=format&fit=crop&w=500&q=80', glow: 'from-cyan-400/25 via-violet-500/25 to-[#D4A945]/28' },
+];
+
 const formatCount = (value: number) => value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}K` : String(value || 0);
 const scoreOf = (entry: ChallengeEntry) => Number(entry.score || 0);
+const visualIndexFor = (seed: string) => Math.abs([...seed].reduce((total, char) => total + char.charCodeAt(0), 0)) % creatorVisuals.length;
+const visualForEntry = (entry: Pick<ChallengeEntry, 'id' | 'userId'>, index = 0) => creatorVisuals[visualIndexFor(entry.id || entry.userId || String(index))];
 
 function BackButton({ onBack }: { onBack: () => void }) {
   return <button type="button" onClick={onBack} className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-black text-zinc-200 hover:border-[#D4A94555] hover:text-[#D4A945]"><ArrowLeft className="h-4 w-4" />Back</button>;
 }
 
 function ChallengeShell({ children, onBack }: { children: React.ReactNode; onBack: () => void }) {
-  return <div className="rounded-[2rem] border border-[#D4A94522] bg-[#11100d]/95 p-4 shadow-2xl shadow-black/40 sm:p-6 lg:p-8">
+  return <div className="relative mx-auto max-w-7xl overflow-hidden rounded-[1.5rem] border border-[#D4A94522] bg-[#11100d]/95 p-4 shadow-2xl shadow-black/40 sm:p-6 lg:p-7">
+    <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(212,169,69,.10),transparent_34%,rgba(45,212,191,.06)_64%,rgba(168,85,247,.08))]" />
+    <div className="relative">
     <div className="mb-6 flex items-center justify-between gap-3"><BackButton onBack={onBack} /><span className="rounded-full border border-[#D4A94533] bg-[#D4A94512] px-4 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#D4A945]">Studio Challenge</span></div>
     {children}
+    </div>
+  </div>;
+}
+
+function CreatorAvatarStrip({ entries = [] as ChallengeEntry[] }) {
+  const visuals = entries.length ? entries.slice(0, 4).map((entry, index) => ({ ...visualForEntry(entry, index), name: entry.authorName || 'Creator', role: `${formatCount(scoreOf(entry))} pts` })) : creatorVisuals;
+  return <div className="flex -space-x-3">
+    {visuals.map((creator, index) => <img key={`${creator.name}-${index}`} src={creator.image} alt={creator.name} className="h-11 w-11 rounded-full border-2 border-[#11100d] object-cover shadow-lg shadow-black/40" />)}
+  </div>;
+}
+
+function StudioRoomFeature({ entries = [], compact = false }: { entries?: ChallengeEntry[]; compact?: boolean }) {
+  return <div className={`relative overflow-hidden rounded-[1.25rem] border border-white/10 bg-black/30 ${compact ? 'min-h-52' : 'min-h-72'}`}>
+    <img src={studioRoomImage} alt="Colorful Taurus challenge studio room" className="absolute inset-0 h-full w-full object-cover opacity-80" />
+    <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(0,0,0,.78),rgba(0,0,0,.18)_48%,rgba(0,0,0,.75)),linear-gradient(28deg,rgba(212,169,69,.26),transparent_42%,rgba(45,212,191,.18))]" />
+    <div className="relative flex h-full min-h-[inherit] flex-col justify-between p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.24em] text-[#D4A945]">Challenge Studio</p>
+          <h3 className="mt-2 max-w-56 text-2xl font-black leading-tight text-white">Original sound room</h3>
+        </div>
+        <CreatorAvatarStrip entries={entries} />
+      </div>
+      <div className="mt-12 grid grid-cols-2 gap-3">
+        <div className="rounded-2xl border border-white/10 bg-black/45 p-3 backdrop-blur"><p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">Visual</p><p className="mt-1 text-sm font-black text-white">Studio vibe</p></div>
+        <div className="rounded-2xl border border-[#D4A94544] bg-[#D4A9451a] p-3 backdrop-blur"><p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#D4A945]">Prize</p><p className="mt-1 text-sm font-black text-white">$1000 TC</p></div>
+      </div>
+    </div>
+  </div>;
+}
+
+function CreatorPreviewGrid() {
+  return <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+    {creatorVisuals.map(creator => <div key={creator.name} className={`overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br ${creator.glow} p-[1px]`}>
+      <div className="rounded-2xl bg-black/70 p-3">
+        <img src={creator.image} alt={creator.name} className="h-24 w-full rounded-xl object-cover" />
+        <p className="mt-3 truncate text-sm font-black text-white">{creator.name}</p>
+        <p className="text-xs text-zinc-400">{creator.role}</p>
+      </div>
+    </div>)}
   </div>;
 }
 
 function EmptyFeed() {
-  return <div className="rounded-[2rem] border border-white/10 bg-black/30 p-10 text-center">
+  return <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-6 text-center">
     <Music className="mx-auto h-12 w-12 text-[#D4A945]" />
     <h3 className="mt-4 text-2xl font-black text-white">No challenge entries yet</h3>
     <p className="mt-2 text-sm leading-6 text-zinc-400">Entries appear here after registered creators post one original song.</p>
+    <CreatorPreviewGrid />
   </div>;
 }
 
@@ -102,15 +156,24 @@ function EntryCard({
 }) {
   const liked = reactionState?.liked === true;
   const saved = reactionState?.saved === true;
-  return <section className="snap-start rounded-[2rem] border border-[#D4A94522] bg-[radial-gradient(circle_at_20%_10%,rgba(212,169,69,.16),transparent_28%),linear-gradient(145deg,#15120b,#060606)] p-5 shadow-2xl shadow-black/40">
-    <div className="grid min-h-[560px] gap-6 lg:grid-cols-[1fr_90px]">
+  const visual = visualForEntry(entry, index);
+  return <section className="snap-start rounded-[1.35rem] border border-[#D4A94522] bg-[radial-gradient(circle_at_20%_10%,rgba(212,169,69,.16),transparent_28%),linear-gradient(145deg,#15120b,#060606)] p-4 shadow-2xl shadow-black/40">
+    <div className="grid min-h-[440px] gap-5 lg:grid-cols-[300px_1fr_74px]">
+      <div className={`relative min-h-72 overflow-hidden rounded-[1.1rem] bg-gradient-to-br ${visual.glow} p-[1px]`}>
+        <img src={visual.image} alt={entry.authorName || visual.name} className="absolute inset-0 h-full w-full rounded-[1.1rem] object-cover opacity-85" />
+        <div className="absolute inset-0 rounded-[1.1rem] bg-gradient-to-t from-black/85 via-black/18 to-black/20" />
+        <div className="absolute bottom-4 left-4 right-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#D4A945]">Original Entry</p>
+          <p className="mt-1 truncate text-lg font-black text-white">@{entry.authorName}</p>
+        </div>
+      </div>
       <div className="flex flex-col justify-between">
         <div>
           <div className="flex items-center justify-between gap-4">
             <span className="rounded-full border border-[#D4A94555] bg-[#D4A94518] px-4 py-2 text-xs font-black uppercase tracking-[0.2em] text-[#D4A945]">{String(index + 1).padStart(2, '0')} / Challenge</span>
             <span className="rounded-full bg-black/40 px-4 py-2 text-xs font-black text-zinc-300">{formatCount(scoreOf(entry))} pts</span>
           </div>
-          <h2 className="mt-10 max-w-3xl text-4xl font-black leading-tight text-white md:text-6xl">{entry.title}</h2>
+          <h2 className="mt-8 max-w-3xl text-3xl font-black leading-tight text-white md:text-5xl">{entry.title}</h2>
           <p className="mt-4 text-sm font-semibold text-[#D4A945]">@{entry.authorName}</p>
           <p className="mt-5 max-w-2xl text-sm leading-7 text-zinc-400">{entry.prompt || 'Original Taurus Studio challenge entry.'}</p>
         </div>
@@ -147,11 +210,14 @@ export default function ChallengeHub(props: ChallengeHubProps) {
       <div className="mx-auto max-w-5xl">
         <h2 className="text-4xl font-black text-white md:text-6xl">Official Rules & Timeline</h2>
         <p className="mt-4 text-zinc-400">Free entry. Original songs only. Winners rank by Likes + Comments + Saves.</p>
-        <div className="mt-8 grid gap-4">
-          {timeline.map(item => <div key={item.label} className="grid gap-4 rounded-[1.5rem] border border-[#D4A94533] bg-black/30 p-5 sm:grid-cols-[70px_1fr]">
-            <div className="grid h-16 w-16 place-items-center rounded-2xl bg-[#D4A945] text-black"><item.icon className="h-7 w-7" /></div>
-            <div><p className="text-xs font-black uppercase tracking-[0.22em] text-[#D4A945]">{item.label}</p><p className="mt-2 text-xl font-black text-white">{item.value}</p></div>
-          </div>)}
+        <div className="mt-8 grid gap-4 lg:grid-cols-[0.78fr_1fr]">
+          <StudioRoomFeature entries={sortedEntries} compact />
+          <div className="grid gap-3">
+            {timeline.map(item => <div key={item.label} className="flex items-center gap-4 rounded-[1.25rem] border border-[#D4A94533] bg-black/30 p-4">
+              <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-[#D4A945] text-black"><item.icon className="h-5 w-5" /></div>
+              <div><p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#D4A945]">{item.label}</p><p className="mt-1 text-base font-black text-white">{item.value}</p></div>
+            </div>)}
+          </div>
         </div>
         <div className="mt-8 grid gap-4 lg:grid-cols-[1fr_0.8fr]">
           <div className="rounded-[1.5rem] border border-white/10 bg-black/30 p-6">
@@ -184,54 +250,68 @@ export default function ChallengeHub(props: ChallengeHubProps) {
     return <ChallengeShell onBack={props.onBack}>
       <div className="mx-auto max-w-6xl">
         <div className="text-center"><Crown className="mx-auto h-12 w-12 text-[#D4A945]" /><h2 className="mt-4 text-4xl font-black text-white md:text-6xl">Leaderboard</h2><p className="mt-3 text-sm text-zinc-400">Ranked by Likes + Comments + Saves.</p></div>
-        <div className="mt-10 grid gap-4 md:grid-cols-3">
-          {topThree.map((entry, index) => <div key={entry.id} className={`rounded-[1.5rem] border p-6 text-center ${index === 0 ? 'border-[#D4A945] bg-[#D4A94514] md:-translate-y-4' : 'border-white/10 bg-black/30'}`}>
-            <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[#D4A945] text-2xl font-black text-black">{index + 1}</div>
-            <h3 className="mt-5 truncate text-xl font-black text-white">{entry.authorName}</h3>
-            <p className="mt-2 truncate text-sm text-zinc-400">{entry.title}</p>
-            <p className="mt-5 text-3xl font-black text-[#D4A945]">{formatCount(scoreOf(entry))}</p>
-          </div>)}
+        <div className="mt-8 grid gap-4 md:grid-cols-3">
+          {topThree.map((entry, index) => {
+            const visual = visualForEntry(entry, index);
+            return <div key={entry.id} className={`overflow-hidden rounded-[1.25rem] border bg-black/35 ${index === 0 ? 'border-[#D4A945] shadow-xl shadow-[#D4A94511]' : 'border-white/10'}`}>
+            <div className={`relative h-36 bg-gradient-to-br ${visual.glow}`}>
+              <img src={visual.image} alt={entry.authorName} className="absolute inset-0 h-full w-full object-cover opacity-80" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-black/5" />
+              <div className="absolute bottom-3 left-3 grid h-12 w-12 place-items-center rounded-full bg-[#D4A945] text-xl font-black text-black">{index + 1}</div>
+            </div>
+            <div className="p-4">
+              <h3 className="truncate text-lg font-black text-white">{entry.authorName}</h3>
+              <p className="mt-1 truncate text-sm text-zinc-400">{entry.title}</p>
+              <p className="mt-4 text-2xl font-black text-[#D4A945]">{formatCount(scoreOf(entry))} pts</p>
+            </div>
+          </div>;
+          })}
           {topThree.length === 0 && <div className="col-span-full"><EmptyFeed /></div>}
         </div>
-        <div className="mt-8 overflow-hidden rounded-[1.5rem] border border-white/10 bg-black/30">
-          {sortedEntries.map((entry, index) => <div key={entry.id} className="grid grid-cols-[60px_1fr_90px] items-center gap-4 border-b border-white/10 p-4 last:border-b-0">
+        <div className="mt-6 overflow-hidden rounded-[1.25rem] border border-white/10 bg-black/30">
+          {sortedEntries.map((entry, index) => { const visual = visualForEntry(entry, index); return <div key={entry.id} className="grid grid-cols-[54px_42px_1fr_80px] items-center gap-3 border-b border-white/10 p-3 last:border-b-0">
             <span className="text-xl font-black text-[#D4A945]">#{index + 1}</span>
+            <img src={visual.image} alt={entry.authorName} className="h-10 w-10 rounded-full object-cover" />
             <div className="min-w-0"><p className="truncate font-black text-white">{entry.title}</p><p className="truncate text-sm text-zinc-500">@{entry.authorName} - {formatCount(entry.likeCount)} likes - {formatCount(entry.commentCount)} comments - {formatCount(entry.saveCount)} saves</p></div>
             <span className="text-right font-black text-white">{formatCount(scoreOf(entry))}</span>
-          </div>)}
+          </div>; })}
         </div>
       </div>
     </ChallengeShell>;
   }
 
   return <ChallengeShell onBack={props.onBack}>
-    <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
+    <div className="grid gap-6 lg:grid-cols-[1fr_0.9fr_300px]">
       <div>
         <div className="inline-flex items-center gap-2 rounded-full border border-[#D4A94555] bg-[#D4A94518] px-4 py-2 text-xs font-black uppercase tracking-[0.22em] text-[#D4A945]"><Sparkles className="h-4 w-4" />Free Registration</div>
-        <h2 className="mt-6 max-w-3xl text-5xl font-black leading-tight text-white md:text-7xl">Taurus Music Studio Challenge</h2>
+        <h2 className="mt-5 max-w-3xl text-4xl font-black leading-tight text-white md:text-5xl">Taurus Music Studio Challenge</h2>
         <p className="mt-5 max-w-2xl text-lg leading-8 text-zinc-300">Create original songs, post one favorite track, and compete for Taurus Coin $1000.</p>
-        <div className="mt-8 grid gap-3">
-          {timeline.map(item => <div key={item.label} className="flex items-center gap-4 rounded-3xl border border-white/10 bg-black/30 p-4"><div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#D4A94514]"><item.icon className="h-5 w-5 text-[#D4A945]" /></div><div><p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">{item.label}</p><p className="mt-1 text-sm font-black text-white">{item.value}</p></div></div>)}
-        </div>
-        <div className="mt-8 flex flex-wrap gap-3">
+        <CreatorPreviewGrid />
+        <div className="mt-6 flex flex-wrap gap-3">
           <button type="button" onClick={props.onRegister} disabled={!props.registrationOpen || props.isRegistered || props.isRegistering} className="rounded-2xl bg-[#D4A945] px-6 py-4 font-black text-black disabled:opacity-50">{props.isRegistering ? 'Registering...' : props.isRegistered ? 'Registered' : props.registrationOpen ? 'Register Free' : 'Registration opens May 7'}</button>
           <button type="button" onClick={props.onCreateSong} className="rounded-2xl border border-[#D4A94555] px-6 py-4 font-black text-[#D4A945] hover:bg-[#D4A945] hover:text-black">Create Song</button>
           <button type="button" onClick={() => props.onNavigate('challenge-rules')} className="rounded-2xl border border-white/10 px-6 py-4 font-black text-white hover:border-[#D4A94555]">Rules</button>
         </div>
       </div>
       <div className="space-y-4">
-        <div className="rounded-[1.5rem] border border-[#D4A94533] bg-[#D4A9450d] p-5">
+        <StudioRoomFeature entries={sortedEntries} />
+        <div className="grid gap-3">
+          {timeline.map(item => <div key={item.label} className="flex items-center gap-4 rounded-3xl border border-white/10 bg-black/30 p-4"><div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#D4A94514]"><item.icon className="h-5 w-5 text-[#D4A945]" /></div><div><p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">{item.label}</p><p className="mt-1 text-sm font-black text-white">{item.value}</p></div></div>)}
+        </div>
+      </div>
+      <div className="space-y-4">
+        <div className="rounded-[1.25rem] border border-[#D4A94533] bg-[#D4A9450d] p-5">
           <Gift className="h-9 w-9 text-[#D4A945]" />
           <p className="mt-4 text-xs font-black uppercase tracking-[0.22em] text-[#D4A945]">Challenge Quota</p>
           <p className="mt-2 text-3xl font-black text-white">{props.isRegistered ? `${props.quotaRemaining}/${quotaLimit}` : `0/${quotaLimit}`}</p>
           <p className="mt-2 text-sm leading-6 text-zinc-400">1 generate creates 2 full songs. Registered users get 5 generate attempts.</p>
         </div>
-        <button type="button" onClick={props.onPostSelectedSong} disabled={!props.selectedSongTitle || !props.isRegistered || !!props.entryId || !!props.postingSongId} className="w-full rounded-[1.5rem] border border-white/10 bg-black/30 p-5 text-left transition hover:border-[#D4A94555] disabled:opacity-50">
+        <button type="button" onClick={props.onPostSelectedSong} disabled={!props.selectedSongTitle || !props.isRegistered || !!props.entryId || !!props.postingSongId} className="w-full rounded-[1.25rem] border border-white/10 bg-black/30 p-5 text-left transition hover:border-[#D4A94555] disabled:opacity-50">
           <div className="flex items-center justify-between gap-3"><div><p className="font-black text-white">Post selected song</p><p className="mt-2 text-sm text-zinc-500">{props.entryId ? 'Entry already posted' : props.selectedSongTitle || 'Select a song from History first'}</p></div><ChevronRight className="h-5 w-5 text-[#D4A945]" /></div>
         </button>
         <div className="grid grid-cols-2 gap-3">
-          <button type="button" onClick={() => props.onNavigate('challenge-feed')} className="rounded-[1.5rem] border border-white/10 bg-black/30 p-5 text-left hover:border-[#D4A94555]"><Play className="h-6 w-6 text-[#D4A945]" /><p className="mt-3 font-black text-white">Media</p><p className="text-sm text-zinc-500">{props.entries.length} entries</p></button>
-          <button type="button" onClick={() => props.onNavigate('challenge-leaderboard')} className="rounded-[1.5rem] border border-white/10 bg-black/30 p-5 text-left hover:border-[#D4A94555]"><Users className="h-6 w-6 text-[#D4A945]" /><p className="mt-3 font-black text-white">Leaders</p><p className="text-sm text-zinc-500">Top 3 prizes</p></button>
+          <button type="button" onClick={() => props.onNavigate('challenge-feed')} className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 text-left hover:border-[#D4A94555]"><Play className="h-6 w-6 text-[#D4A945]" /><p className="mt-3 font-black text-white">Media</p><p className="text-sm text-zinc-500">{props.entries.length} entries</p></button>
+          <button type="button" onClick={() => props.onNavigate('challenge-leaderboard')} className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 text-left hover:border-[#D4A94555]"><Users className="h-6 w-6 text-[#D4A945]" /><p className="mt-3 font-black text-white">Leaders</p><p className="text-sm text-zinc-500">Top 3 prizes</p></button>
         </div>
       </div>
     </div>
