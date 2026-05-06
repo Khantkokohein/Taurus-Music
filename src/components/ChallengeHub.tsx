@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ArrowLeft, Bookmark, CalendarDays, ChevronRight, Crown, Gift, Heart, MessageCircle, Music, Play, ShieldCheck, Sparkles, Trophy, Users } from 'lucide-react';
 import { ChallengeEntry, CHALLENGE_GENERATE_ATTEMPTS } from '../firebase';
 
@@ -46,13 +46,35 @@ const timeline = [
   { icon: Trophy, label: 'Winner / Payout', value: 'May 20, 2026' },
 ];
 
-const rules = [
-  'Register free inside Taurus Studio.',
-  `Registered users get ${CHALLENGE_GENERATE_ATTEMPTS} generate attempts, equal to 10 premium full songs.`,
-  'Post one favorite original song to join the leaderboard.',
-  'Voice, instrumentals, AI lyrics, and AI singing are allowed.',
-  'Cover songs and artist voice cloning are not allowed.',
-  'Score = Likes + Comments + Saves. Each action is 1 point.',
+const challengeRules = [
+  {
+    en: 'Registration is free inside Taurus Studio. Only registered users can join the challenge.',
+    my: 'Taurus Studio အတွင်း စာရင်းသွင်းခြင်းသည် အခမဲ့ဖြစ်ပြီး စာရင်းသွင်းထားသူများသာ Challenge တွင် ပါဝင်နိုင်သည်။',
+  },
+  {
+    en: `Registered users receive ${CHALLENGE_GENERATE_ATTEMPTS} generate attempts, equal to 10 premium full-song creations.`,
+    my: `စာရင်းသွင်းထားသူတိုင်း Generate ${CHALLENGE_GENERATE_ATTEMPTS} ကြိမ် ရရှိပြီး Premium full song ၁၀ ပုဒ် ဖန်တီးနိုင်သည်။`,
+  },
+  {
+    en: 'Each participant can post only one favorite original song as the official entry.',
+    my: 'ပါဝင်သူတစ်ဦးလျှင် မိမိအကြိုက်ဆုံး Original song တစ်ပုဒ်သာ official entry အဖြစ် post တင်နိုင်သည်။',
+  },
+  {
+    en: 'Voice recording, instrumentals, AI lyrics, and AI singing are allowed when the work is original.',
+    my: 'မိမိကိုယ်ပိုင် idea အပေါ်အခြေခံထားပါက voice recording, instrumentals, AI lyrics နှင့် AI singing ကို အသုံးပြုနိုင်သည်။',
+  },
+  {
+    en: 'Cover songs, copied melodies, artist voice cloning, and copyrighted material are not allowed.',
+    my: 'Cover song, melody ကူးယူခြင်း, artist voice cloning နှင့် မူပိုင်ခွင့်ရှိသော material များကို အသုံးပြုခွင့်မရှိပါ။',
+  },
+  {
+    en: 'Leaderboard score is Likes + Comments + Saves. Each valid action is 1 point.',
+    my: 'Leaderboard score သည် Likes + Comments + Saves စုစုပေါင်းဖြစ်ပြီး action တစ်ခုလျှင် ၁ point ဖြစ်သည်။',
+  },
+  {
+    en: 'Spam, fake abuse, copied accounts, or rule-breaking entries may be removed by the Taurus Team.',
+    my: 'Spam, fake abuse, copied accounts သို့မဟုတ် စည်းကမ်းချိုးဖောက်သော entry များကို Taurus Team မှ ဖယ်ရှားနိုင်သည်။',
+  },
 ];
 
 const studioRoomImage = 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=1200&q=85';
@@ -201,6 +223,7 @@ function EntryCard({
 }
 
 export default function ChallengeHub(props: ChallengeHubProps) {
+  const [rulesLanguage, setRulesLanguage] = useState<'en' | 'my'>('en');
   const sortedEntries = [...props.entries].sort((a, b) => scoreOf(b) - scoreOf(a));
   const topThree = sortedEntries.slice(0, 3);
   const quotaLimit = props.quotaLimit || CHALLENGE_GENERATE_ATTEMPTS;
@@ -208,8 +231,15 @@ export default function ChallengeHub(props: ChallengeHubProps) {
   if (props.page === 'challenge-rules') {
     return <ChallengeShell onBack={props.onBack}>
       <div className="mx-auto max-w-5xl">
-        <h2 className="text-4xl font-black text-white md:text-6xl">Official Rules & Timeline</h2>
-        <p className="mt-4 text-zinc-400">Free entry. Original songs only. Winners rank by Likes + Comments + Saves.</p>
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+          <div>
+            <h2 className="text-4xl font-black text-white md:text-6xl">Official Rules & Timeline</h2>
+            <p className="mt-4 text-zinc-400">English first. Use Translate to read the Myanmar version.</p>
+          </div>
+          <button type="button" onClick={() => setRulesLanguage(current => current === 'en' ? 'my' : 'en')} className="rounded-2xl border border-[#D4A94555] bg-[#D4A94512] px-5 py-3 text-sm font-black text-[#D4A945] hover:bg-[#D4A945] hover:text-black">
+            {rulesLanguage === 'en' ? 'Translate Myanmar' : 'Show English'}
+          </button>
+        </div>
         <div className="mt-8 grid gap-4 lg:grid-cols-[0.78fr_1fr]">
           <StudioRoomFeature entries={sortedEntries} compact />
           <div className="grid gap-3">
@@ -221,8 +251,11 @@ export default function ChallengeHub(props: ChallengeHubProps) {
         </div>
         <div className="mt-8 grid gap-4 lg:grid-cols-[1fr_0.8fr]">
           <div className="rounded-[1.5rem] border border-white/10 bg-black/30 p-6">
-            <h3 className="text-2xl font-black text-white">Creation Rules</h3>
-            <div className="mt-5 grid gap-3">{rules.map(rule => <div key={rule} className="flex gap-3 rounded-2xl bg-white/[0.04] p-4 text-sm text-zinc-300"><ShieldCheck className="h-5 w-5 shrink-0 text-[#D4A945]" /><span>{rule}</span></div>)}</div>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-2xl font-black text-white">Creation Rules</h3>
+              <span className="rounded-full bg-white/[0.05] px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-zinc-400">{rulesLanguage === 'en' ? 'English' : 'Myanmar'}</span>
+            </div>
+            <div className="mt-5 grid gap-3">{challengeRules.map((rule, index) => <div key={rule.en} className="flex gap-3 rounded-2xl bg-white/[0.04] p-4 text-sm leading-6 text-zinc-300"><ShieldCheck className="h-5 w-5 shrink-0 text-[#D4A945]" /><span><strong className="mr-2 text-[#D4A945]">{index + 1}.</strong>{rule[rulesLanguage]}</span></div>)}</div>
           </div>
           <div className="rounded-[1.5rem] border border-[#D4A94533] bg-[#D4A9450d] p-6">
             <Trophy className="h-10 w-10 text-[#D4A945]" />

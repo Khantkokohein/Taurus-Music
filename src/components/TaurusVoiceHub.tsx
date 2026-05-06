@@ -67,11 +67,37 @@ const CREATE_STEPS = [
   'Reward ledger tracks every approved use',
 ];
 
-const legalRules = [
-  'Voice owner must give consent before public model release.',
-  'Celebrity, artist clone, and copied voice release needs legal rights.',
-  'Owner can request private removal before commercial launch.',
-  'Reward payout connects later through Taurus Coin ledger.',
+const voicePolicyRules = [
+  {
+    en: 'The voice owner must record or upload their own voice and confirm consent before any model is reviewed.',
+    my: 'Voice owner သည် မိမိကိုယ်ပိုင်အသံကိုသာ record/upload ပြုလုပ်ပြီး model review မဝင်မီ consent အတည်ပြုရမည်။',
+  },
+  {
+    en: 'A public Taurus Voice cannot be released until identity, language, audio quality, and usage rights are approved.',
+    my: 'Identity, language, audio quality နှင့် usage rights အတည်ပြုပြီးမှသာ public Taurus Voice အဖြစ် ထုတ်နိုင်သည်။',
+  },
+  {
+    en: 'Celebrity voices, artist clones, copied voices, or voices submitted without permission are not allowed.',
+    my: 'Celebrity voice, artist clone, copied voice သို့မဟုတ် ခွင့်ပြုချက်မရှိသော အသံများကို ခွင့်မပြုပါ။',
+  },
+  {
+    en: 'Voice samples must be clean: no music bed, no heavy noise, no other speaker mixed into the file.',
+    my: 'Voice sample သည် သန့်ရှင်းရမည်။ music bed, noise များခြင်း, တခြားလူအသံ ရောခြင်း မရှိရပါ။',
+  },
+  {
+    en: 'The owner may request private removal before commercial release. Approved public voices follow Taurus reward rules.',
+    my: 'Commercial release မတိုင်မီ owner သည် private removal တောင်းဆိုနိုင်ပြီး approved public voices များသည် Taurus reward rules ကိုလိုက်နာရမည်။',
+  },
+  {
+    en: 'Any report, copyright claim, consent dispute, or unsafe content can pause or remove a voice from the library.',
+    my: 'Report, copyright claim, consent dispute သို့မဟုတ် unsafe content ရှိပါက voice ကို library မှ ခေတ္တရပ်/ဖယ်ရှားနိုင်သည်။',
+  },
+];
+
+const rewardRules = [
+  'Reward is calculated only from approved voice usage.',
+  'Payout will connect to Taurus Coin after TaurusPay reward ledger is ready.',
+  'Fraud, fake usage, or copied voice activity can cancel rewards.',
 ];
 
 function Panel({ children, className = '' }: { children: React.ReactNode; className?: string }) {
@@ -108,6 +134,7 @@ export default function TaurusVoiceHub({ onClose, onOpenStudio, onSelectVoice }:
   const [sampleMinutes, setSampleMinutes] = useState(10);
   const [noiseFloor, setNoiseFloor] = useState(35);
   const [privacy, setPrivacy] = useState('Private review');
+  const [policyLanguage, setPolicyLanguage] = useState<'en' | 'my'>('en');
 
   const handleUseVoice = (voiceName: string) => {
     onSelectVoice(voiceName);
@@ -153,7 +180,7 @@ export default function TaurusVoiceHub({ onClose, onOpenStudio, onSelectVoice }:
                   <p className="text-xs font-black uppercase tracking-[0.32em] text-[#D4A945]">Original Voice Library</p>
                   <h3 className="mt-3 text-3xl font-black tracking-tight md:text-4xl">Build Taurus-owned voices legally</h3>
                   <p className="mt-4 max-w-2xl text-sm leading-7 text-white/55">
-                    Voice pages are separated from the create screen. Every public voice needs clean recording, consent, identity check, language metadata, and reward tracking.
+                    Voice pages are separated from the create screen. Every public voice needs clean recording, consent, identity check, language metadata, rights review, and reward tracking.
                   </p>
                   <div className="mt-6 flex flex-wrap gap-3">
                     {[
@@ -239,13 +266,19 @@ export default function TaurusVoiceHub({ onClose, onOpenStudio, onSelectVoice }:
                 <aside className="space-y-6">
                   <Panel>
                     <div className="p-5">
-                      <h3 className="mb-4 flex items-center gap-2 text-sm font-black uppercase tracking-[0.24em]">
-                        <ShieldCheck size={16} className="text-[#D4A945]" /> Policy
-                      </h3>
+                      <div className="mb-4 flex items-center justify-between gap-3">
+                        <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-[0.24em]">
+                          <ShieldCheck size={16} className="text-[#D4A945]" /> Voice Rules
+                        </h3>
+                        <ActionButton onClick={() => setPolicyLanguage(current => current === 'en' ? 'my' : 'en')} className="border border-[#D4A94555] bg-[#D4A94512] px-3 py-2 text-[#D4A945] hover:bg-[#D4A945] hover:text-black">
+                          {policyLanguage === 'en' ? 'MY' : 'EN'}
+                        </ActionButton>
+                      </div>
                       <div className="space-y-3">
-                        {legalRules.map(rule => (
-                          <p key={rule} className="flex gap-3 text-xs leading-6 text-white/50">
-                            <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-[#D4A945]" /> {rule}
+                        {voicePolicyRules.map((rule, index) => (
+                          <p key={rule.en} className="flex gap-3 text-xs leading-6 text-white/55">
+                            <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-[#D4A945]" />
+                            <span><strong className="mr-1 text-[#D4A945]">{index + 1}.</strong>{rule[policyLanguage]}</span>
                           </p>
                         ))}
                       </div>
@@ -257,9 +290,9 @@ export default function TaurusVoiceHub({ onClose, onOpenStudio, onSelectVoice }:
                       <h3 className="mb-3 flex items-center gap-2 text-sm font-black uppercase tracking-[0.24em]">
                         <Users size={16} className="text-[#D4A945]" /> Reward
                       </h3>
-                      <p className="text-xs leading-6 text-white/50">
-                        Voice owner reward will be calculated from approved voice usage and paid later through Taurus Coin after TaurusPay integration.
-                      </p>
+                      <div className="space-y-3">
+                        {rewardRules.map(rule => <p key={rule} className="flex gap-3 text-xs leading-6 text-white/50"><CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-[#D4A945]" />{rule}</p>)}
+                      </div>
                     </div>
                   </Panel>
                 </aside>
