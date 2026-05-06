@@ -8,9 +8,11 @@ import TaurusLandingPage from './components/TaurusLandingPage';
 import TaurusVoiceHub from './components/TaurusVoiceHub';
 import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, consumeGenerationCredit, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadVoiceProfileSample, saveVoiceProfile, uploadRemixReference, getEffectivePlanConfig, getTimestampMillis, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, GENERATE_TWO_SONGS_COST, UserProfile, UserTier } from './firebase';
 
-interface Song { id: string; userId?: string; idea: string; prompt: string; audioUrl: string; storagePath?: string; mimeType?: string; lyrics: string; lyriaModel?: LyriaModelId; instrumentTags?: string[]; voiceStrength?: string; voiceProfileId?: string; voiceProfileName?: string; remixMode?: string; remixReferencePath?: string; remixReferenceName?: string; createdAt: number; }
+interface Song { id: string; userId?: string; idea: string; prompt: string; audioUrl: string; storagePath?: string; mimeType?: string; lyrics: string; lyriaModel?: LyriaModelId; editorOperation?: string; instrumentTags?: string[]; voiceStrength?: string; voiceProfileId?: string; voiceProfileName?: string; remixMode?: string; remixReferencePath?: string; remixReferenceName?: string; createdAt: number; }
 interface VoiceProfile { id: string; userId?: string; name: string; sampleUrl: string; storagePath: string; contentType: string; consent: boolean; consentText: string; createdAt: number; }
 type GenerateResponse = { audioBase64: string; mimeType?: string; lyrics?: string; model?: string; };
+type AudioEditOperation = 'crop' | 'fade' | 'split' | 'export' | 'selected-range-export';
+type AudioEditResponse = { ok: boolean; operation: AudioEditOperation; format: 'mp3' | 'wav'; outputs: Array<{ label: string; fileName: string; mimeType: string; audioBase64: string; }>; };
 type TaurusPayInvoice = {
   invoiceId: string;
   status: string;
@@ -206,6 +208,13 @@ export default function AppStudio() {
   const [lyriaModel, setLyriaModel] = useState<LyriaModelId>('lyria-3-clip-preview');
   const [bpm, setBpm] = useState(120);
   const [structure, setStructure] = useState('3:00 Studio Map');
+  const [editStart, setEditStart] = useState(0);
+  const [editEnd, setEditEnd] = useState(30);
+  const [splitAt, setSplitAt] = useState(30);
+  const [fadeIn, setFadeIn] = useState(2);
+  const [fadeOut, setFadeOut] = useState(2);
+  const [editFormat, setEditFormat] = useState<'mp3' | 'wav'>('mp3');
+  const [editingOperation, setEditingOperation] = useState<AudioEditOperation | ''>('');
   const audioRef = useRef(new Audio());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
@@ -302,7 +311,7 @@ export default function AppStudio() {
     const q = query(collection(db, 'users', user.uid, 'songs'), orderBy('createdAt', 'desc'), limit(30));
     return onSnapshot(q, snap => setHistory(snap.docs.map(d => {
       const x = d.data();
-      return { id: d.id, userId: x.userId || user.uid, idea: x.idea || 'Untitled', prompt: x.prompt || '', audioUrl: x.audioUrl || '', storagePath: x.storagePath, mimeType: x.mimeType || 'audio/mpeg', lyrics: x.lyrics || '', lyriaModel: x.lyriaModel || 'lyria-3-pro-preview', instrumentTags: x.instrumentTags || [], voiceStrength: x.voiceStrength || '', voiceProfileId: x.voiceProfileId || '', voiceProfileName: x.voiceProfileName || '', remixMode: x.remixMode || '', remixReferencePath: x.remixReferencePath || '', remixReferenceName: x.remixReferenceName || '', createdAt: x.createdAt?.toMillis?.() || Date.now() } as Song;
+      return { id: d.id, userId: x.userId || user.uid, idea: x.idea || 'Untitled', prompt: x.prompt || '', audioUrl: x.audioUrl || '', storagePath: x.storagePath, mimeType: x.mimeType || 'audio/mpeg', lyrics: x.lyrics || '', lyriaModel: x.lyriaModel || 'lyria-3-pro-preview', editorOperation: x.editorOperation || '', instrumentTags: x.instrumentTags || [], voiceStrength: x.voiceStrength || '', voiceProfileId: x.voiceProfileId || '', voiceProfileName: x.voiceProfileName || '', remixMode: x.remixMode || '', remixReferencePath: x.remixReferencePath || '', remixReferenceName: x.remixReferenceName || '', createdAt: x.createdAt?.toMillis?.() || Date.now() } as Song;
     })));
   }, [user]);
 
@@ -340,6 +349,46 @@ export default function AppStudio() {
 
   const downloadSong = (song: Song) => { const link = document.createElement('a'); link.href = song.audioUrl; link.download = `${song.idea || 'taurus-song'}.mp3`.replace(/[^a-z0-9._-]+/gi, '-'); link.click(); };
   const setFeedback = (label: string) => setProgress(`Feedback saved: ${label}. Next version will tune stronger.`);
+  const saveEditedOutputs = async (sourceSong: Song, response: AudioEditResponse) => {
+    if (!user) throw new Error('Login with Gmail first.');
+    for (let index = 0; index < response.outputs.length; index += 1) {
+      const output = response.outputs[index];
+      const blob = audioBase64ToBlob(output.audioBase64, output.mimeType);
+      const id = `${Date.now()}-${response.operation}-${index + 1}`;
+      const uploaded = await uploadSongAudio(user.uid, id, blob);
+      await saveSong(user.uid, {
+        id,
+        idea: `${sourceSong.idea} (${output.label})`,
+        prompt: `${sourceSong.prompt || sourceSong.idea}\n\nStudio editor: ${response.operation}, ${response.format.toUpperCase()}`,
+        audioUrl: uploaded.audioUrl,
+        storagePath: uploaded.storagePath,
+        mimeType: uploaded.mimeType,
+        lyrics: sourceSong.lyrics || 'Studio edit created by Taurus Audio Tools.',
+        lyriaModel: sourceSong.lyriaModel,
+        editorOperation: response.operation,
+        instrumentTags: sourceSong.instrumentTags || [],
+        voiceStrength: sourceSong.voiceStrength || '',
+        voiceProfileId: sourceSong.voiceProfileId || '',
+        voiceProfileName: sourceSong.voiceProfileName || '',
+        remixMode: sourceSong.remixMode || '',
+        remixReferencePath: sourceSong.remixReferencePath || '',
+        remixReferenceName: sourceSong.remixReferenceName || '',
+      });
+    }
+  };
+  const runAudioEdit = async (operation: AudioEditOperation) => {
+    if (!user) return setError('Login with Gmail first.');
+    if (!currentSong) return setError('Select a song from History first.');
+    if ((operation === 'crop' || operation === 'selected-range-export') && editEnd <= editStart) return setError('End time must be greater than start time.');
+    setEditingOperation(operation); setError(null);
+    try {
+      setProgress(`Studio editor processing ${operation}...`);
+      const response = await postJson<AudioEditResponse>('/api/audio-edit', { songId: currentSong.id, operation, format: editFormat, start: editStart, end: editEnd, splitAt, fadeIn, fadeOut });
+      await saveEditedOutputs(currentSong, response);
+      setProgress(`Studio editor saved ${response.outputs.length} ${editFormat.toUpperCase()} file${response.outputs.length > 1 ? 's' : ''}.`);
+    } catch (e: any) { setError(e.message || 'Audio edit failed.'); setProgress('Audio edit failed'); }
+    finally { setEditingOperation(''); }
+  };
   const toggleInstrument = (item: string) => setInstruments(current => (
     current.includes(item) ? current.filter(value => value !== item) : [...current, item]
   ));
@@ -500,6 +549,9 @@ export default function AppStudio() {
   const expiry = getTimestampMillis(profile?.subscriptionExpiresAt);
   const walletPanel = <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-2xl font-bold"><Wallet className="mr-2 inline h-5 w-5"/>Wallet</h3><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Credits</p><p className="mt-1 text-2xl font-bold">{credits}</p></div><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Free month</p><p className="mt-1 text-2xl font-bold">{daily}</p></div></div>{expiry>0 && <p className="mt-2 text-xs text-zinc-500">Expires {formatDate(expiry)}</p>}<div className="mt-5 rounded-3xl border border-[#D4A94533] bg-[#D4A9450d] p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.24em] text-[#D4A945]">TON Wallet</p><p className="mt-2 font-black text-white">{tonWallet ? 'Connected' : 'Connect required'}</p><p className="mt-1 break-all font-mono text-xs text-zinc-400">{tonAddress || 'Telegram Wallet / TON wallet not connected.'}</p></div><span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase ${tonAddress ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/10 text-zinc-400'}`}>{connectedWalletLabel}</span></div><div className="mt-4 flex flex-col gap-3"><TonConnectButton className="ton-connect-button"/><button onClick={openWalletPayment} className="rounded-2xl bg-[#D4A945] px-4 py-3 text-sm font-black text-black transition-colors hover:bg-[#e6bd5b]">{tonAddress ? 'Use Wallet for TaurusPay' : 'Connect Wallet'}</button></div></div></div>;
   const plansPanel = <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-xl font-bold"><CreditCard className="mr-2 inline h-5 w-5"/>TaurusPay</h3><p className="mt-2 text-sm text-zinc-400">USDT on TON. Exact amount only. Underpay fails, overpay goes to manual review.</p><div className="mt-4 rounded-3xl border border-white/10 bg-black/20 p-4 text-sm"><div className="flex items-center justify-between gap-3"><div><p className="font-semibold text-zinc-200">Connected wallet</p><p className="mt-1 break-all font-mono text-xs text-zinc-500">{tonAddress || 'Not connected yet'}</p></div><span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase ${tonAddress ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/10 text-zinc-400'}`}>{connectedWalletLabel}</span></div><div className="mt-3"><TonConnectButton className="ton-connect-button"/></div></div><div className="mt-4 grid gap-3">{PACKAGES.map(p => <button key={p.id} onClick={() => { setTier(p.id); setTaurusPayInvoice(null); }} className={`rounded-3xl border p-4 text-left ${tier===p.id?'border-[#D4A945] bg-[#D4A94514]':'border-white/10 bg-black/20'}`}><div className="flex justify-between gap-3"><p className="font-semibold">{p.title}</p><p>{p.price}</p></div><p className="text-sm text-zinc-400">{p.credits}</p></button>)}</div><label className="mt-4 block rounded-3xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-300"><span className="mb-2 block font-semibold">Your Telegram / TON wallet</span><input value={paymentWallet} onChange={e => setPaymentWallet(e.target.value)} placeholder="UQ... wallet address" className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none focus:border-[#D4A94588]"/></label><button onClick={submitPayment} disabled={!user || submitting} className="mt-4 w-full rounded-3xl bg-[#D4A945] px-5 py-3 font-black text-black disabled:opacity-50">{submitting ? <Loader2 className="mr-2 inline h-4 w-4 animate-spin"/> : <CheckCircle2 className="mr-2 inline h-4 w-4"/>}Create TaurusPay Invoice</button>{taurusPayInvoice && <div className="mt-4 rounded-3xl border border-[#D4A94533] bg-[#D4A9450d] p-4 text-sm"><p className="font-black text-[#D4A945]">Invoice {taurusPayInvoice.status}</p><div className="mt-3 space-y-2 text-zinc-300"><p>Network: {taurusPayInvoice.network}</p><p>Asset: {taurusPayInvoice.asset}</p><p>Amount: {taurusPayInvoice.amount} {taurusPayInvoice.asset}</p><p className="break-all">Recipient: {taurusPayInvoice.recipient}</p><p className="break-all">Memo: {taurusPayInvoice.memo || taurusPayInvoice.reference}</p></div><button onClick={checkTaurusPayStatus} disabled={submitting} className="mt-4 w-full rounded-2xl border border-[#D4A94555] px-4 py-3 font-black text-[#D4A945] disabled:opacity-50">Check Payment Status</button></div>}</div>;
+  const editorNumberInput = (label: string, value: number, set: (value: number) => void) => <label className="block"><span className="mb-1 block text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">{label}</span><input type="number" min="0" step="0.1" value={value} onChange={e => set(Math.max(Number(e.target.value) || 0, 0))} className="w-full rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-sm outline-none focus:border-[#D4A94588]"/></label>;
+  const editorButton = (operation: AudioEditOperation, label: string) => <button onClick={() => runAudioEdit(operation)} disabled={!currentSong || !!editingOperation} className="rounded-2xl border border-[#D4A94555] bg-transparent px-3 py-3 text-sm font-black text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black disabled:cursor-not-allowed disabled:opacity-45">{editingOperation === operation ? <Loader2 className="mr-2 inline h-4 w-4 animate-spin"/> : null}{label}</button>;
+  const editorPanel = <div className="rounded-[2rem] border border-white/10 bg-[#11100d]/95 p-6 shadow-2xl shadow-black/30"><h3 className="text-xl font-black"><Settings className="mr-2 inline h-5 w-5 text-[#D4A945]"/>Studio Editor</h3><p className="mt-2 text-sm leading-6 text-zinc-400">{currentSong ? currentSong.idea : 'Play a song from History first, then edit it here.'}</p><div className="mt-5 grid grid-cols-2 gap-3">{editorNumberInput('Start sec', editStart, setEditStart)}{editorNumberInput('End sec', editEnd, setEditEnd)}{editorNumberInput('Split at', splitAt, setSplitAt)}<label className="block"><span className="mb-1 block text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Format</span><select value={editFormat} onChange={e => setEditFormat(e.target.value as 'mp3' | 'wav')} className="w-full rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-sm outline-none focus:border-[#D4A94588]"><option value="mp3">MP3</option><option value="wav">WAV</option></select></label>{editorNumberInput('Fade in', fadeIn, setFadeIn)}{editorNumberInput('Fade out', fadeOut, setFadeOut)}</div><div className="mt-5 grid grid-cols-2 gap-2">{editorButton('crop', 'Crop')}{editorButton('selected-range-export', 'Range Export')}{editorButton('fade', 'Fade In/Out')}{editorButton('split', 'Split')}{editorButton('export', `Export ${editFormat.toUpperCase()}`)}</div><p className="mt-4 text-xs leading-5 text-zinc-500">FFmpeg runs on Google Cloud Run. Results are saved back into History as new files.</p></div>;
   const chips = (items: string[], value: string, set: (v: string) => void) => <div className="flex flex-wrap gap-2">{items.map(i => <button key={i} onClick={() => set(i)} className={`rounded-2xl border px-3 py-2 text-sm font-semibold transition-colors ${value === i ? 'border-[#D4A945] bg-[#D4A945] text-black' : 'border-white/10 bg-white/[0.04] text-zinc-400 hover:border-[#D4A94555] hover:text-white'}`}>{i}</button>)}</div>;
 
   if (activePage === 'landing') {
@@ -630,7 +682,7 @@ export default function AppStudio() {
               </div>
             </div>
           </div>}
-            {activePage === 'history' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><div className="mb-4 flex items-center justify-between"><h3 className="text-2xl font-bold"><History className="mr-2 inline h-5 w-5 text-violet-300"/>Song History</h3><span className="text-sm text-zinc-500">{filtered.length}</span></div><div className="grid gap-3">{filtered.map(song => <div key={song.id} className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-black/20 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="truncate font-semibold">{song.idea}</p><p className="text-xs text-zinc-500">{formatDate(song.createdAt)}</p><div className="mt-2 flex gap-2"><button onClick={() => setFeedback('like')} className="rounded-full bg-white/5 p-2"><ThumbsUp className="h-4 w-4"/></button><button onClick={() => setFeedback('needs stronger beat/harmony')} className="rounded-full bg-white/5 p-2"><ThumbsDown className="h-4 w-4"/></button></div></div><div className="flex gap-2"><button onClick={() => playSong(song)} className="rounded-2xl bg-white px-4 py-2 text-zinc-950">{currentSong?.id===song.id && isPlaying ? <Pause className="h-4 w-4"/> : <Play className="h-4 w-4"/>}</button><button onClick={() => downloadSong(song)} className="rounded-2xl border border-white/10 px-4 py-2"><Download className="h-4 w-4"/></button></div></div>)}{filtered.length===0 && <p className="rounded-2xl border border-white/10 p-4 text-sm text-zinc-400">No songs yet.</p>}</div></div>}</section>
+            {activePage === 'history' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><div className="mb-4 flex items-center justify-between"><h3 className="text-2xl font-bold"><History className="mr-2 inline h-5 w-5 text-violet-300"/>Song History</h3><span className="text-sm text-zinc-500">{filtered.length}</span></div><div className="grid gap-3">{filtered.map(song => <div key={song.id} onClick={() => setCurrentSong(song)} className={`flex cursor-pointer flex-col gap-3 rounded-3xl border bg-black/20 p-4 transition-colors sm:flex-row sm:items-center sm:justify-between ${currentSong?.id===song.id?'border-[#D4A945]':'border-white/10 hover:border-[#D4A94555]'}`}><div className="min-w-0"><p className="truncate font-semibold">{song.idea}</p><p className="text-xs text-zinc-500">{formatDate(song.createdAt)}{song.editorOperation ? ` · ${song.editorOperation}` : ''}</p><div className="mt-2 flex gap-2"><button onClick={(e) => { e.stopPropagation(); setFeedback('like'); }} className="rounded-full bg-white/5 p-2"><ThumbsUp className="h-4 w-4"/></button><button onClick={(e) => { e.stopPropagation(); setFeedback('needs stronger beat/harmony'); }} className="rounded-full bg-white/5 p-2"><ThumbsDown className="h-4 w-4"/></button></div></div><div className="flex gap-2"><button onClick={(e) => { e.stopPropagation(); playSong(song); }} className="rounded-2xl bg-white px-4 py-2 text-zinc-950">{currentSong?.id===song.id && isPlaying ? <Pause className="h-4 w-4"/> : <Play className="h-4 w-4"/>}</button><button onClick={(e) => { e.stopPropagation(); downloadSong(song); }} className="rounded-2xl border border-white/10 px-4 py-2"><Download className="h-4 w-4"/></button></div></div>)}{filtered.length===0 && <p className="rounded-2xl border border-white/10 p-4 text-sm text-zinc-400">No songs yet.</p>}</div></div>}</section>
           <aside className="space-y-6">{activePage === 'create' && <div className="rounded-[2rem] border border-white/10 bg-[#11100d]/95 p-6 shadow-2xl shadow-black/30">
             <h3 className="text-xl font-black">Studio Monitor</h3>
             <div className="mt-5 space-y-4">
@@ -639,7 +691,7 @@ export default function AppStudio() {
               <div className="rounded-3xl border border-white/10 bg-black/30 p-4"><p className="text-xs font-black uppercase tracking-[0.22em] text-zinc-500">Signal Chain</p><div className="mt-3 space-y-2 text-sm text-zinc-400"><p>Prompt &gt; Lyrics &gt; Section Map</p><p>Vocal Chain &gt; Instrumental Chain</p><p>Master &gt; Save &gt; Export</p></div></div>
               <button onClick={() => openPanel('voice')} className="w-full rounded-2xl border border-[#D4A94555] bg-transparent px-4 py-3 text-sm font-black text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black"><Mic2 className="mr-2 inline h-4 w-4"/>Open Taurus Voice</button>
             </div>
-          </div>}{activePage === 'wallet' && walletPanel}{activePage === 'plans' && plansPanel}</aside>
+          </div>}{activePage === 'history' && editorPanel}{activePage === 'wallet' && walletPanel}{activePage === 'plans' && plansPanel}</aside>
         </div>
       </main>
     </div>
