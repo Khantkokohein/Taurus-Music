@@ -6,9 +6,10 @@ import { AlertCircle, CheckCircle2, Clock3, Code2, CreditCard, Download, History
 import DeveloperHub from './components/DeveloperHub';
 import TaurusLandingPage from './components/TaurusLandingPage';
 import TaurusVoiceHub from './components/TaurusVoiceHub';
-import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, consumeGenerationCredit, approvePayment, rejectPayment, saveSong, uploadSongAudio, getEffectivePlanConfig, getTimestampMillis, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, GENERATE_TWO_SONGS_COST, UserProfile, UserTier } from './firebase';
+import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, consumeGenerationCredit, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadVoiceProfileSample, saveVoiceProfile, uploadRemixReference, getEffectivePlanConfig, getTimestampMillis, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, GENERATE_TWO_SONGS_COST, UserProfile, UserTier } from './firebase';
 
-interface Song { id: string; userId?: string; idea: string; prompt: string; audioUrl: string; storagePath?: string; mimeType?: string; lyrics: string; createdAt: number; }
+interface Song { id: string; userId?: string; idea: string; prompt: string; audioUrl: string; storagePath?: string; mimeType?: string; lyrics: string; instrumentTags?: string[]; voiceStrength?: string; voiceProfileId?: string; voiceProfileName?: string; remixMode?: string; remixReferencePath?: string; remixReferenceName?: string; createdAt: number; }
+interface VoiceProfile { id: string; userId?: string; name: string; sampleUrl: string; storagePath: string; contentType: string; consent: boolean; consentText: string; createdAt: number; }
 type GenerateResponse = { audioBase64: string; mimeType?: string; lyrics?: string; model?: string; };
 type TaurusPayInvoice = {
   invoiceId: string;
@@ -25,6 +26,7 @@ type TaurusPayInvoice = {
 };
 type StudioPage = 'landing' | 'create' | 'history' | 'wallet' | 'plans';
 type StudioPanel = 'voice' | 'developers' | 'admin' | null;
+type StudioVersion = 'A' | 'B' | 'C' | 'D';
 
 interface StudioRoute {
   page: StudioPage;
@@ -36,6 +38,7 @@ const MOODS = ['Motivation', 'Chill', 'Romantic', 'Sad', 'Epic'];
 const VOICES = ['Deep', 'Cold', 'Warm', 'Soft', 'Power'];
 const VOICE_STRENGTHS = ['Power Vocal', 'Soft Vocal', 'Cold Vocal', 'Studio Vocal', 'Duet'];
 const INSTRUMENT_CHOICES = ['Piano', 'Guitar', 'Bass Boost', 'Violin', '808', 'Drums', 'Strings', 'Synth'];
+const REMIX_MODES = ['Original', 'Cover Safe', 'Remix Safe', 'Melody to Song'];
 const SINGERS = ['Male', 'Female', 'Duet'];
 const LANGS = ['Burmese', 'English', 'Burmese + English'];
 const QUALITY = ['Taurus Studio', 'Taurus Apex', 'Taurus Custom'];
@@ -99,7 +102,7 @@ const getVoiceStrengthProfile = (voiceStrength: string) => {
   return 'maximum power vocal, huge front-facing presence, thick lead body, strong projection, premium hook stacks, high perceived loudness without clipping.';
 };
 
-const getStudioProductionPreset = (s: { genre: string; mood: string; voice: string; voiceStrength: string; singer: string; lang: string; bpm: number; structure: string; instruments: string[]; version: 'A' | 'B'; }) => {
+const getStudioProductionPreset = (s: { genre: string; mood: string; voice: string; voiceStrength: string; singer: string; lang: string; bpm: number; structure: string; instruments: string[]; version: StudioVersion; }) => {
   const energy = s.version === 'A' ? 'clean, confident, radio-forward' : 'bigger, deeper, more cinematic';
   const selectedInstruments = s.instruments.length ? s.instruments.join(', ') : 'Piano, Bass Boost, 808, Drums';
   const voiceProfile = getVoiceStrengthProfile(s.voiceStrength);
@@ -133,7 +136,7 @@ const getStudioProductionPreset = (s: { genre: string; mood: string; voice: stri
   };
 };
 
-const buildStudioPrompt = (s: { idea: string; lyrics: string; genre: string; mood: string; voice: string; voiceStrength: string; singer: string; lang: string; bpm: number; structure: string; quality: string; instruments: string[]; version: 'A' | 'B'; }) => {
+const buildStudioPrompt = (s: { idea: string; lyrics: string; genre: string; mood: string; voice: string; voiceStrength: string; singer: string; lang: string; bpm: number; structure: string; quality: string; instruments: string[]; version: StudioVersion; }) => {
   const versionRule = s.version === 'A'
     ? 'Version A: flagship polished radio master, clean hook, commercial replay value, bright controlled energy.'
     : 'Version B: flagship deep cinematic master, colder low-end, more tension, heavier lift, same quality level as Version A.';
@@ -158,6 +161,7 @@ export default function AppStudio() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [history, setHistory] = useState<Song[]>([]);
+  const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfile[]>([]);
   const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -180,12 +184,25 @@ export default function AppStudio() {
   const [voice, setVoice] = useState('Deep');
   const [voiceStrength, setVoiceStrength] = useState('Power Vocal');
   const [instruments, setInstruments] = useState<string[]>(['Piano', 'Bass Boost', '808', 'Drums']);
+  const [selectedVoiceProfileId, setSelectedVoiceProfileId] = useState('');
+  const [voiceProfileName, setVoiceProfileName] = useState('');
+  const [voiceConsent, setVoiceConsent] = useState(false);
+  const [voiceSampleFile, setVoiceSampleFile] = useState<File | null>(null);
+  const [recordedVoiceBlob, setRecordedVoiceBlob] = useState<Blob | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [voiceSaving, setVoiceSaving] = useState(false);
+  const [remixMode, setRemixMode] = useState('Original');
+  const [remixReferenceFile, setRemixReferenceFile] = useState<File | null>(null);
+  const [remixLyrics, setRemixLyrics] = useState('');
+  const [remixConsent, setRemixConsent] = useState(false);
   const [singer, setSinger] = useState('Male');
   const [lang, setLang] = useState('Burmese');
   const [quality, setQuality] = useState('Taurus Studio');
   const [bpm, setBpm] = useState(120);
   const [structure, setStructure] = useState('3:00 Studio Map');
   const audioRef = useRef(new Audio());
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
   const tonAddress = useTonAddress();
   const tonWallet = useTonWallet();
   const tonModal = useTonConnectModal();
@@ -220,6 +237,9 @@ export default function AppStudio() {
   const admin = owner || profile?.role === 'admin';
   const taurusId = profile?.taurusId || (user ? buildTaurusAccountCode(user.uid) : '');
   const filtered = useMemo(() => history.filter(s => `${s.idea} ${s.prompt}`.toLowerCase().includes(search.toLowerCase())), [history, search]);
+  const selectedVoiceProfile = useMemo(() => voiceProfiles.find(item => item.id === selectedVoiceProfileId) || null, [voiceProfiles, selectedVoiceProfileId]);
+  const premiumPreviewEnabled = owner || plan.id === 'premium';
+  const generationCountLabel = premiumPreviewEnabled ? '4' : '2';
   const connectedWalletLabel = tonAddress ? compactWalletAddress(tonAddress) : 'Not connected';
 
   useEffect(() => {
@@ -270,7 +290,20 @@ export default function AppStudio() {
     const q = query(collection(db, 'users', user.uid, 'songs'), orderBy('createdAt', 'desc'), limit(30));
     return onSnapshot(q, snap => setHistory(snap.docs.map(d => {
       const x = d.data();
-      return { id: d.id, userId: x.userId || user.uid, idea: x.idea || 'Untitled', prompt: x.prompt || '', audioUrl: x.audioUrl || '', storagePath: x.storagePath, mimeType: x.mimeType || 'audio/mpeg', lyrics: x.lyrics || '', createdAt: x.createdAt?.toMillis?.() || Date.now() } as Song;
+      return { id: d.id, userId: x.userId || user.uid, idea: x.idea || 'Untitled', prompt: x.prompt || '', audioUrl: x.audioUrl || '', storagePath: x.storagePath, mimeType: x.mimeType || 'audio/mpeg', lyrics: x.lyrics || '', instrumentTags: x.instrumentTags || [], voiceStrength: x.voiceStrength || '', voiceProfileId: x.voiceProfileId || '', voiceProfileName: x.voiceProfileName || '', remixMode: x.remixMode || '', remixReferencePath: x.remixReferencePath || '', remixReferenceName: x.remixReferenceName || '', createdAt: x.createdAt?.toMillis?.() || Date.now() } as Song;
+    })));
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setVoiceProfiles([]);
+      setSelectedVoiceProfileId('');
+      return undefined;
+    }
+    const q = query(collection(db, 'users', user.uid, 'voiceProfiles'), orderBy('createdAt', 'desc'), limit(20));
+    return onSnapshot(q, snap => setVoiceProfiles(snap.docs.map(d => {
+      const x = d.data();
+      return { id: d.id, userId: x.userId || user.uid, name: x.name || 'Voice Profile', sampleUrl: x.sampleUrl || '', storagePath: x.storagePath || '', contentType: x.contentType || 'audio/webm', consent: x.consent === true, consentText: x.consentText || '', createdAt: x.createdAt?.toMillis?.() || Date.now() } as VoiceProfile;
     })));
   }, [user]);
 
@@ -298,20 +331,92 @@ export default function AppStudio() {
   const toggleInstrument = (item: string) => setInstruments(current => (
     current.includes(item) ? current.filter(value => value !== item) : [...current, item]
   ));
+  const startVoiceRecording = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) return setError('Voice recording is not supported in this browser.');
+    setError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordingChunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = event => {
+        if (event.data.size > 0) recordingChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        setRecordedVoiceBlob(new Blob(recordingChunksRef.current, { type: recorder.mimeType || 'audio/webm' }));
+        stream.getTracks().forEach(track => track.stop());
+        setRecording(false);
+      };
+      recorder.start();
+      setRecording(true);
+    } catch (e: any) {
+      setError(e?.message || 'Could not start voice recording.');
+    }
+  };
+  const stopVoiceRecording = () => mediaRecorderRef.current?.stop();
+  const saveCurrentVoiceProfile = async () => {
+    if (!user) return setError('Login with Gmail first.');
+    if (!voiceConsent) return setError('Voice consent is required before saving a voice profile.');
+    const sample = recordedVoiceBlob || voiceSampleFile;
+    if (!sample) return setError('Upload or record a voice sample first.');
+    const name = voiceProfileName.trim() || `${voiceStrength} Profile`;
+    setVoiceSaving(true); setError(null);
+    try {
+      const profileId = `vp-${Date.now()}`;
+      const uploaded = await uploadVoiceProfileSample(user.uid, profileId, sample, voiceSampleFile?.name || 'recorded-voice.webm');
+      await saveVoiceProfile(user.uid, {
+        id: profileId,
+        name,
+        sampleUrl: uploaded.sampleUrl,
+        storagePath: uploaded.storagePath,
+        contentType: uploaded.contentType,
+        consent: true,
+        consentText: 'User confirmed they own this voice or have permission to use it inside Taurus Music.',
+      });
+      setSelectedVoiceProfileId(profileId);
+      setVoiceProfileName('');
+      setVoiceSampleFile(null);
+      setRecordedVoiceBlob(null);
+      setVoiceConsent(false);
+      setProgress('Voice profile saved.');
+    } catch (e: any) { setError(e.message || 'Voice profile save failed.'); }
+    finally { setVoiceSaving(false); }
+  };
 
   const generate = async () => {
     if (!user) return setError('Login with Gmail first.');
     if (!profile) return setError('Gmail connected. Profile is loading, please try again in a moment.');
     if (!idea.trim() && !lyrics.trim()) return setError('Add idea or lyrics.');
+    if (remixMode !== 'Original' && !remixConsent) return setError('Cover/remix permission checkbox is required.');
     setIsGenerating(true); setError(null);
     try {
+      let remixReference: Awaited<ReturnType<typeof uploadRemixReference>> | null = null;
+      if (remixReferenceFile) {
+        setProgress('Uploading cover/remix reference...');
+        remixReference = await uploadRemixReference(user.uid, `ref-${Date.now()}`, remixReferenceFile);
+      }
       setProgress(`Checking ${GENERATE_TWO_SONGS_COST} credits...`);
       const usage = await consumeGenerationCredit(user.uid, GENERATE_TWO_SONGS_COST);
       if (!usage.allowed) throw new Error(`Not enough credits. Remaining: ${usage.remaining}.`);
-      for (const version of ['A', 'B'] as const) {
-        setProgress(`Generating Version ${version}...`);
-        const compiled = buildStudioPrompt({ idea, lyrics, genre, mood, voice, voiceStrength, singer, lang, bpm, structure, quality, instruments, version });
-        const studio = getStudioProductionPreset({ genre, mood, voice, voiceStrength, singer, lang, bpm, structure, instruments, version });
+      const variants: Array<{ version: StudioVersion; durationMode: 'full' | 'preview'; label: string; title: string }> = [
+        { version: 'A', durationMode: 'full', label: 'Version A polished commercial master', title: 'Version A' },
+        { version: 'B', durationMode: 'full', label: 'Version B deep cold cinematic master', title: 'Version B' },
+        ...(premiumPreviewEnabled ? [
+          { version: 'C' as StudioVersion, durationMode: 'preview' as const, label: 'Premium Preview C power vocal hook preview', title: 'Premium Preview C' },
+          { version: 'D' as StudioVersion, durationMode: 'preview' as const, label: 'Premium Preview D cinematic instrumental preview', title: 'Premium Preview D' },
+        ] : []),
+      ];
+      for (const variant of variants) {
+        setProgress(`Generating ${variant.title}...`);
+        const corePrompt = buildStudioPrompt({ idea, lyrics, genre, mood, voice, voiceStrength, singer, lang, bpm, structure, quality, instruments, version: variant.version });
+        const studio = getStudioProductionPreset({ genre, mood, voice, voiceStrength, singer, lang, bpm, structure, instruments, version: variant.version });
+        const voiceProfilePrompt = selectedVoiceProfile
+          ? `User-consented Taurus voice profile selected: ${selectedVoiceProfile.name}. Use it only as the user's authorized tone, diction, and delivery direction. Do not clone any third-party artist or unconsented identity.`
+          : '';
+        const remixPrompt = remixMode !== 'Original'
+          ? `Cover/remix mode: ${remixMode}. User confirmed legal permission. Reference file: ${remixReference?.name || remixReferenceFile?.name || 'none'}. Melody/lyrics notes: ${remixLyrics || 'Create a safe original variation.'}. Do not copy exact copyrighted melody, lyrics, master recording, or artist identity.`
+          : '';
+        const compiled = [corePrompt, voiceProfilePrompt, remixPrompt].filter(Boolean).join(' ');
         const response = await postJson<GenerateResponse>('/api/generate-song', {
           prompt: compiled,
           genreDescription: `${genre}, ${mood}, ${lang}, ${bpm} BPM, ${instruments.join(', ') || 'studio core'}, Taurus Studio Master v4`,
@@ -322,24 +427,24 @@ export default function AppStudio() {
           instrumental: false,
           styleText: `${quality}, ${mood}, ${voice} ${singer}, ${voiceStrength}, ${instruments.join(', ') || 'studio core'}, big hook, strong beat, rich harmony, studio booth vocal, powerful instrumental`,
           artistName: '',
-          weirdness: version === 'A' ? 35 : 58,
-          styleInfluence: version === 'A' ? 72 : 86,
-          durationMode: 'full',
-          variantLabel: version === 'A' ? 'Version A polished commercial master' : 'Version B deep cold cinematic master',
+          weirdness: variant.version === 'A' ? 35 : 58,
+          styleInfluence: variant.version === 'A' ? 72 : 86,
+          durationMode: variant.durationMode,
+          variantLabel: variant.label,
           voice: `${singer} ${voice} ${voiceStrength}`,
-          vocalProduction: studio.vocalProduction,
+          vocalProduction: `${studio.vocalProduction} ${voiceProfilePrompt}`,
           instrumentalProduction: studio.instrumentalProduction,
           masteringProfile: studio.masteringProfile,
           negativeProductionRules: studio.negativeProductionRules,
           sectionMap: studio.sectionMap,
         });
-        setProgress(`Saving Version ${version}...`);
+        setProgress(`Saving ${variant.title}...`);
         const blob = audioBase64ToBlob(response.audioBase64, response.mimeType);
-        const id = `${Date.now()}-${version}`;
+        const id = `${Date.now()}-${variant.version}`;
         const uploaded = await uploadSongAudio(user.uid, id, blob);
-        await saveSong(user.uid, { id, idea: compactTitle(idea, mood, genre, `Version ${version}`), prompt: compiled, audioUrl: uploaded.audioUrl, storagePath: uploaded.storagePath, mimeType: uploaded.mimeType, lyrics: response.lyrics || lyrics || 'Generated by Taurus Studio.' });
+        await saveSong(user.uid, { id, idea: compactTitle(idea, mood, genre, variant.title), prompt: compiled, audioUrl: uploaded.audioUrl, storagePath: uploaded.storagePath, mimeType: uploaded.mimeType, lyrics: response.lyrics || lyrics || 'Generated by Taurus Studio.', instrumentTags: instruments, voiceStrength, voiceProfileId: selectedVoiceProfile?.id || '', voiceProfileName: selectedVoiceProfile?.name || '', remixMode, remixReferencePath: remixReference?.storagePath || '', remixReferenceName: remixReference?.name || '' });
       }
-      setProgress('Done. Studio versions saved.');
+      setProgress(`Done. ${variants.length} studio versions saved.`);
     } catch (e: any) { setError(e.message || 'Generation failed.'); setProgress('Failed'); }
     finally { setIsGenerating(false); }
   };
@@ -459,6 +564,29 @@ export default function AppStudio() {
                 </div>
               </div>
 
+              <div className="relative mt-6 grid gap-5 lg:grid-cols-2">
+                <div className="rounded-[1.75rem] border border-white/10 bg-black/30 p-5">
+                  <h3 className="mb-5 text-lg font-black">Taurus Voice Profile</h3>
+                  <div className="space-y-4">
+                    <label className="block text-sm font-bold text-zinc-300">Select saved voice<select value={selectedVoiceProfileId} onChange={e => setSelectedVoiceProfileId(e.target.value)} className="mt-2 w-full rounded-2xl border border-white/10 bg-[#070707] p-3 text-sm outline-none focus:border-[#D4A94588]"><option value="">No voice profile</option>{voiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select></label>
+                    <input value={voiceProfileName} onChange={e => setVoiceProfileName(e.target.value.slice(0,80))} placeholder="New voice profile name" className="w-full rounded-2xl border border-white/10 bg-[#070707] px-4 py-3 text-sm outline-none focus:border-[#D4A94588]"/>
+                    <input type="file" accept="audio/*" onChange={e => { setVoiceSampleFile(e.target.files?.[0] || null); setRecordedVoiceBlob(null); }} className="w-full rounded-2xl border border-white/10 bg-[#070707] px-4 py-3 text-sm text-zinc-300 file:mr-3 file:rounded-xl file:border-0 file:bg-[#D4A945] file:px-3 file:py-2 file:font-black file:text-black"/>
+                    <div className="flex flex-wrap gap-2"><button onClick={recording ? stopVoiceRecording : startVoiceRecording} className={`rounded-2xl px-4 py-3 text-sm font-black ${recording ? 'bg-red-500 text-white' : 'border border-[#D4A94555] text-[#D4A945]'}`}>{recording ? 'Stop Recording' : 'Record Voice'}</button>{recordedVoiceBlob && <span className="rounded-2xl border border-emerald-400/30 px-4 py-3 text-sm font-bold text-emerald-300">Recorded sample ready</span>}</div>
+                    <label className="flex gap-3 rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-zinc-300"><input type="checkbox" checked={voiceConsent} onChange={e => setVoiceConsent(e.target.checked)} className="mt-1 accent-[#D4A945]"/><span>I own this voice or have permission to use it in Taurus Music.</span></label>
+                    <button onClick={saveCurrentVoiceProfile} disabled={voiceSaving || !user} className="w-full rounded-2xl bg-[#D4A945] px-4 py-3 text-sm font-black text-black disabled:opacity-50">{voiceSaving ? 'Saving...' : 'Save Voice Profile'}</button>
+                  </div>
+                </div>
+                <div className="rounded-[1.75rem] border border-white/10 bg-black/30 p-5">
+                  <h3 className="mb-5 text-lg font-black">Cover / Remix Guard</h3>
+                  <div className="space-y-4">
+                    <select value={remixMode} onChange={e => setRemixMode(e.target.value)} className="w-full rounded-2xl border border-white/10 bg-[#070707] p-3 text-sm outline-none focus:border-[#D4A94588]">{REMIX_MODES.map(mode => <option key={mode}>{mode}</option>)}</select>
+                    <input type="file" accept="audio/*" onChange={e => setRemixReferenceFile(e.target.files?.[0] || null)} className="w-full rounded-2xl border border-white/10 bg-[#070707] px-4 py-3 text-sm text-zinc-300 file:mr-3 file:rounded-xl file:border-0 file:bg-[#D4A945] file:px-3 file:py-2 file:font-black file:text-black"/>
+                    <textarea value={remixLyrics} onChange={e => setRemixLyrics(e.target.value.slice(0,1200))} rows={5} placeholder="Melody / lyrics / reference notes..." className="w-full resize-none rounded-2xl border border-white/10 bg-[#070707] p-4 text-sm leading-6 outline-none focus:border-[#D4A94588]"/>
+                    <label className="flex gap-3 rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-zinc-300"><input type="checkbox" checked={remixConsent} onChange={e => setRemixConsent(e.target.checked)} className="mt-1 accent-[#D4A945]"/><span>I have rights or permission for this reference. Taurus must create a safe original variation, not an exact clone.</span></label>
+                  </div>
+                </div>
+              </div>
+
               <div className="relative mt-6 grid gap-5 lg:grid-cols-[1fr_260px]">
                 <label className="rounded-[1.75rem] border border-white/10 bg-black/30 p-5">
                   <span className="mb-3 flex items-center justify-between text-sm font-black"><span>BPM</span><span className="rounded-full bg-[#D4A945] px-3 py-1 text-xs text-black">{bpm}</span></span>
@@ -472,7 +600,7 @@ export default function AppStudio() {
 
               <div className="relative mt-6 flex flex-col gap-3 rounded-[1.75rem] border border-[#D4A94533] bg-[#D4A9450d] p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div><p className="text-sm font-black text-white">Studio render queue</p><p className="mt-1 text-xs text-zinc-500">{progress}</p></div>
-                <button onClick={generate} disabled={isGenerating || !user || !profile} className="rounded-2xl bg-[#D4A945] px-6 py-4 font-black text-black transition-colors hover:bg-[#e6bd5b] disabled:opacity-50">{isGenerating ? <Loader2 className="mr-2 inline h-5 w-5 animate-spin"/> : <Sparkles className="mr-2 inline h-5 w-5"/>}{!user ? 'Login Gmail to use free credits' : !profile ? 'Loading profile...' : `Generate 2 · ${GENERATE_TWO_SONGS_COST} credits`}</button>
+                <button onClick={generate} disabled={isGenerating || !user || !profile} className="rounded-2xl bg-[#D4A945] px-6 py-4 font-black text-black transition-colors hover:bg-[#e6bd5b] disabled:opacity-50">{isGenerating ? <Loader2 className="mr-2 inline h-5 w-5 animate-spin"/> : <Sparkles className="mr-2 inline h-5 w-5"/>}{!user ? 'Login Gmail to use free credits' : !profile ? 'Loading profile...' : `Generate ${generationCountLabel} · ${GENERATE_TWO_SONGS_COST} credits`}</button>
               </div>
             </div>
           </div>}

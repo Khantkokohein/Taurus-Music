@@ -266,6 +266,35 @@ service cloud.firestore {
         && (!('revokedAt' in incoming()) || incoming().revokedAt == existing().revokedAt || incoming().revokedAt == request.time);
     }
 
+    function isValidVoiceProfile(userId, profileId) {
+      return incoming().keys().hasOnly([
+          'id',
+          'userId',
+          'name',
+          'sampleUrl',
+          'storagePath',
+          'contentType',
+          'consent',
+          'consentText',
+          'createdAt'
+        ])
+        && incoming().id == profileId
+        && incoming().userId == request.auth.uid
+        && incoming().name is string
+        && incoming().name.size() > 0
+        && incoming().name.size() <= 80
+        && incoming().sampleUrl is string
+        && incoming().sampleUrl.size() < 1000
+        && incoming().storagePath is string
+        && incoming().storagePath.matches('^users/' + userId + '/voice-profiles/' + profileId + '/.*')
+        && incoming().contentType is string
+        && incoming().contentType.matches('audio/.*')
+        && incoming().consent == true
+        && incoming().consentText is string
+        && incoming().consentText.size() <= 500
+        && incoming().createdAt == request.time;
+    }
+
     // User Profile
     match /users/{userId} {
       allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
@@ -322,6 +351,15 @@ service cloud.firestore {
       allow list, get: if isOwner(userId) || isAdmin();
       allow create: if isDeveloperApiKeyCreate(userId);
       allow update: if isAdmin() || isDeveloperApiKeyUpdate(userId);
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    // User-owned voice profiles
+    match /users/{userId}/voiceProfiles/{profileId} {
+      allow list, get: if isOwner(userId) || isAdmin();
+      allow create, update: if isOwner(userId)
+        && isValidId(profileId)
+        && isValidVoiceProfile(userId, profileId);
       allow delete: if isOwner(userId) || isAdmin();
     }
 

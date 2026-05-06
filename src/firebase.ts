@@ -156,6 +156,25 @@ export interface Song {
   storagePath?: string;
   mimeType?: string;
   lyrics: string;
+  instrumentTags?: string[];
+  voiceStrength?: string;
+  voiceProfileId?: string;
+  voiceProfileName?: string;
+  remixMode?: string;
+  remixReferencePath?: string;
+  remixReferenceName?: string;
+  createdAt: any;
+}
+
+export interface VoiceProfile {
+  id: string;
+  userId: string;
+  name: string;
+  sampleUrl: string;
+  storagePath: string;
+  contentType: string;
+  consent: boolean;
+  consentText: string;
   createdAt: any;
 }
 
@@ -446,6 +465,39 @@ export const uploadSongAudio = async (userId: string, songId: string, blob: Blob
   const audioRef = ref(storage, storagePath);
   await uploadBytes(audioRef, blob, { contentType, customMetadata: { userId, songId } });
   return { audioUrl: await getDownloadURL(audioRef), storagePath, mimeType: contentType };
+};
+
+const getAudioExtension = (contentType: string) => {
+  if (contentType.includes('wav')) return 'wav';
+  if (contentType.includes('ogg')) return 'ogg';
+  if (contentType.includes('webm')) return 'webm';
+  if (contentType.includes('m4a')) return 'm4a';
+  return 'mp3';
+};
+
+export const uploadVoiceProfileSample = async (userId: string, profileId: string, sample: Blob, fileName = 'voice-sample.webm') => {
+  const contentType = sample.type && sample.type.startsWith('audio/') ? sample.type : 'audio/webm';
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '-').slice(-80) || `voice-sample.${getAudioExtension(contentType)}`;
+  const storagePath = `users/${userId}/voice-profiles/${profileId}/${safeName}`;
+  const sampleRef = ref(storage, storagePath);
+  await uploadBytes(sampleRef, sample, { contentType, customMetadata: { userId, profileId, originalName: safeName } });
+  return { sampleUrl: await getDownloadURL(sampleRef), storagePath, contentType };
+};
+
+export const saveVoiceProfile = async (userId: string, profile: Omit<VoiceProfile, 'userId' | 'createdAt'>) => {
+  const profileRef = doc(db, 'users', userId, 'voiceProfiles', profile.id);
+  const fullProfile: VoiceProfile = { ...profile, userId, createdAt: serverTimestamp() };
+  await setDoc(profileRef, fullProfile);
+  return fullProfile;
+};
+
+export const uploadRemixReference = async (userId: string, referenceId: string, file: File) => {
+  const contentType = file.type && file.type.startsWith('audio/') ? file.type : 'audio/mpeg';
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-').slice(-80) || `reference.${getAudioExtension(contentType)}`;
+  const storagePath = `users/${userId}/remix-references/${referenceId}/${safeName}`;
+  const referenceRef = ref(storage, storagePath);
+  await uploadBytes(referenceRef, file, { contentType, customMetadata: { userId, referenceId, originalName: file.name } });
+  return { url: await getDownloadURL(referenceRef), storagePath, name: file.name, contentType };
 };
 
 export const uploadPaymentProof = async (userId: string, file: File) => {

@@ -27,6 +27,18 @@ service firebase.storage {
       allow delete: if isOwner(userId);
     }
 
+    match /users/{userId}/voice-profiles/{profileId}/{fileName} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isAudioUpload();
+      allow delete: if isOwner(userId);
+    }
+
+    match /users/{userId}/remix-references/{referenceId}/{fileName} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isAudioUpload();
+      allow delete: if isOwner(userId);
+    }
+
     match /users/{userId}/payment-proofs/{fileName} {
       allow read: if isOwner(userId);
       allow create, update: if isOwner(userId) && isPaymentProofUpload();
