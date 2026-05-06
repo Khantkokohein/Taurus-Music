@@ -65,6 +65,11 @@ export const generateSongAudio = async ({
   durationMode,
   variantLabel,
   voice,
+  vocalProduction,
+  instrumentalProduction,
+  masteringProfile,
+  negativeProductionRules,
+  sectionMap,
 }: {
   prompt: string;
   genreDescription: string;
@@ -80,20 +85,28 @@ export const generateSongAudio = async ({
   durationMode: string;
   variantLabel: string;
   voice: string;
+  vocalProduction: string;
+  instrumentalProduction: string;
+  masteringProfile: string;
+  negativeProductionRules: string;
+  sectionMap: string;
 }) => {
   const ai = getClient();
   const durationInstruction = durationMode === 'preview'
     ? 'Target duration must be about 60 seconds. This is a premium preview, so make it feel exciting but end cleanly at the preview point.'
     : 'Target duration must be at least 2 minutes 50 seconds and no longer than 3 minutes 30 seconds. Do not make a short sample.';
   const fullPrompt = [
-    `Create a complete, fully arranged ${genreDescription} song as an MP3 with commercial AI music platform quality.`,
+    `Create a complete, fully arranged ${genreDescription} song as an MP3 with high-end studio music platform quality.`,
     durationInstruction,
     `Theme: ${prompt}.`,
     `Variation: ${variantLabel}.`,
     `Model profile: ${modelProfile}.`,
     `Style tags: ${styleText || genreDescription}.`,
     `Artist/vibe reference: ${artistName || 'none'}. Use only broad genre, mood, vocal energy, arrangement, and production texture. Do not imitate or clone the exact artist voice, melody, lyrics, identity, or copyrighted song; create an original Taurus performance.`,
-    `Vocal direction: ${voice}.`,
+    `Song section map: ${sectionMap || 'intro, verse, pre-hook, hook, verse 2, hook 2, bridge, final hook, outro'}.`,
+    `Vocal direction: ${voice}. ${vocalProduction || 'Upfront studio vocal, natural emotion, clean diction, strong hook stacks, tasteful ad-libs, no robotic delivery.'}`,
+    `Instrumental direction: ${instrumentalProduction || arrangementDescription}.`,
+    `Mix/master direction: ${masteringProfile || 'Clear lead vocal, deep controlled low end, wide chorus, glue compression, limiter, release-ready loudness.'}`,
     `Lyrics mode: ${lyricsMode}. ${instrumental ? 'Create an instrumental track with no vocals.' : lyricsText ? `Use and adapt these lyrics naturally: ${lyricsText}.` : 'Write original lyrics when needed.'}`,
     `Creative controls: weirdness ${weirdness}%, style influence ${styleInfluence}%.`,
     `Arrangement must follow these selected sounds: ${arrangementDescription}.`,
@@ -101,6 +114,7 @@ export const generateSongAudio = async ({
     durationMode === 'preview'
       ? 'Write and perform a compact premium preview with intro, hook, verse/chorus highlight, and a clean teaser ending.'
       : 'Write and perform the full prompt from start to finish. Include intro, verse 1, pre-chorus, chorus, verse 2, bridge, final chorus, and outro. The ending must feel complete, not cut off.',
+    `Avoid these production failures: ${negativeProductionRules || 'thin demo, karaoke feel, weak drums, muddy bass, buried vocal, off-key vocal, random mumbling, abrupt cutoff, copyrighted imitation.'}`,
     'Lyrics must be complete, natural to sing, and match the user language when clear. Return the full lyrics/structure text and the MP3 audio.',
   ].join(' ');
 

@@ -87,23 +87,51 @@ const routeHash = (route: StudioRoute) => `#${route.page}${route.panel ? `/${rou
 const formatDate = (value: number) => new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(value);
 const compactTitle = (idea: string, mood: string, genre: string, v: string) => `${idea.replace(/3[- ]?minute|create|song|about/gi, '').replace(/[^a-zA-Z0-9\u1000-\u109F\s-]/g, '').trim().split(/\s+/).slice(0, 5).join(' ') || `${mood} ${genre}`} (${v})`;
 
+const getStudioProductionPreset = (s: { genre: string; mood: string; voice: string; singer: string; lang: string; bpm: number; structure: string; version: 'A' | 'B'; }) => {
+  const energy = s.version === 'A' ? 'clean, confident, radio-forward' : 'bigger, deeper, more cinematic';
+  return {
+    vocalProduction: [
+      `${s.singer} ${s.voice} vocal, ${energy} lead performance.`,
+      'Lead vocal must sit upfront and centered with clear consonants, controlled breath, natural vibrato, confident pitch, emotional phrases, and no robotic delivery.',
+      'Add tasteful double-tracking on hooks, low harmony/support stacks, short ad-libs before transitions, and call-response accents where useful.',
+      s.lang.toLowerCase().includes('burmese') ? 'Myanmar/Burmese pronunciation must be natural, syllables must land on beat, and words must not sound broken or foreign.' : 'Pronunciation must follow the selected language naturally.',
+    ].join(' '),
+    instrumentalProduction: [
+      `${s.genre} ${s.mood} arrangement at ${s.bpm} BPM.`,
+      'Drums must hit hard with punchy kick, tight snare/clap, rolling hats, percussion movement every 8 bars, fills into hooks, and a real drop lift.',
+      '808/sub bass must be deep, clean, tuned, sidechain-aware, and not muddy. Piano/guitar/synth/strings must create rich harmony, counter melody, and section movement.',
+      'Avoid loop-only backing. Each section needs new layers, risers, breaks, impacts, and a bigger final chorus.',
+    ].join(' '),
+    masteringProfile: [
+      'Mix like a modern studio master: vocal clear above beat, controlled low end, separated mids, wide chorus stereo, smooth reverb/delay tails, de-essed highs, glue compression, limiter, and release-ready loudness.',
+      'Do not clip, pump badly, distort the vocal, bury the lyric, or leave dead silence before the ending.',
+    ].join(' '),
+    negativeProductionRules: [
+      'No karaoke feel. No thin demo. No weak drums. No muddy bass. No flat chord loop. No off-key vocal. No random mumbling. No abrupt cutoff. No cheap phone-recording texture.',
+      'Do not imitate a real artist voice, copyrighted melody, or existing song. Create an original Taurus performance with only broad vibe influence.',
+    ].join(' '),
+    sectionMap: s.structure === '3:00 Studio Map'
+      ? '0:00 intro motif, 0:12 verse 1, 0:42 pre-hook lift, 0:55 hook, 1:18 verse 2, 1:50 hook 2, 2:12 bridge/breakdown, 2:35 final hook with extra stacks, 3:05 outro.'
+      : `${s.structure}: intro, verse, pre-hook, hook, second verse, hook, bridge, final hook, outro with clear ending.`,
+  };
+};
+
 const buildStudioPrompt = (s: { idea: string; lyrics: string; genre: string; mood: string; voice: string; singer: string; lang: string; bpm: number; structure: string; quality: string; version: 'A' | 'B'; }) => {
   const versionRule = s.version === 'A'
-    ? 'Version A: polished radio master, clean hook, commercial replay value, bright controlled energy.'
-    : 'Version B: deeper, colder, darker, cinematic low-end, more tension, bigger final lift.';
-  const structureRule = s.structure === '3:00 Studio Map'
-    ? 'Timing: 0:00 intro, 0:12 verse 1, 0:45 hook, 1:05 verse 2, 1:38 hook 2, 1:58 bridge, 2:20 final hook, 2:50 outro.'
-    : `Structure: ${s.structure}.`;
+    ? 'Version A: flagship polished radio master, clean hook, commercial replay value, bright controlled energy.'
+    : 'Version B: flagship deep cinematic master, colder low-end, more tension, heavier lift, same quality level as Version A.';
+  const studio = getStudioProductionPreset(s);
   return [
-    `Taurus Studio Master v2. Create a full ${s.lang} ${s.genre} track at ${s.bpm} BPM.`,
-    `Quality: ${s.quality}. Make it feel expensive, studio-made, emotional and finished, not demo/karaoke/thin AI draft.`,
+    `Taurus Studio Master v4. Create a full ${s.lang} ${s.genre} track at ${s.bpm} BPM.`,
+    `Quality: ${s.quality}. Make it feel expensive, studio-made, emotional and finished.`,
     `Idea: ${s.idea}. Mood: ${s.mood}. Voice: ${s.singer} ${s.voice}.`,
-    structureRule,
+    `Section map: ${studio.sectionMap}`,
     versionRule,
-    'Beat: hard-hitting modern drums, punchy kick, deep controlled 808/sub bass, crisp snare/clap, rolling hi-hats, percussion fills every 8 bars, hook drop, section changes, no weak drums, no muddy bass.',
-    'Harmony: emotional minor chords, cinematic piano motif, warm wide pads, string swells into hooks, bass follows chord movement, counter melody, bigger final hook, no flat chords, no empty chorus.',
-    'Mix: wide stereo, clean low-end, clear mids, instrument separation, polished loudness, mastering glue, smooth reverb/delay, no sudden cutoff, no cheap phone-demo feel.',
-    'Personalization seed: remember that this user wants Burmese motivational rap, deep/cold voice energy, strong 808, cinematic piano, big hook, and studio texture.',
+    `Vocal production: ${studio.vocalProduction}`,
+    `Instrumental production: ${studio.instrumentalProduction}`,
+    `Mastering: ${studio.masteringProfile}`,
+    `Avoid: ${studio.negativeProductionRules}`,
+    'Personalization seed: Burmese motivational rap, powerful deep/cold vocal energy, strong 808, cinematic piano, big hook, studio texture, expensive mix.',
     s.lyrics.trim() ? `Use these lyrics naturally: ${s.lyrics}` : 'Write complete lyrics with a sticky hook and natural phrasing. No filler lines.',
   ].join(' ');
 };
@@ -240,21 +268,27 @@ export default function AppStudio() {
       for (const version of ['A', 'B'] as const) {
         setProgress(`Generating Version ${version}...`);
         const compiled = buildStudioPrompt({ idea, lyrics, genre, mood, voice, singer, lang, bpm, structure, quality, version });
+        const studio = getStudioProductionPreset({ genre, mood, voice, singer, lang, bpm, structure, version });
         const response = await postJson<GenerateResponse>('/api/generate-song', {
           prompt: compiled,
-          genreDescription: `${genre}, ${mood}, ${lang}, ${bpm} BPM, Taurus Studio Master v2`,
-          arrangementDescription: 'Hard drums, deep 808, crisp snare, rolling hats, cinematic piano, string swells, rich harmony, wide master, strong final hook.',
-          modelProfile: `${quality}: v5.5-style personalization layer, studio master preset, instrumental quality boost first, vocal profile ready when model access supports it.`,
+          genreDescription: `${genre}, ${mood}, ${lang}, ${bpm} BPM, Taurus Studio Master v4`,
+          arrangementDescription: studio.instrumentalProduction,
+          modelProfile: `${quality}: Taurus Studio v4 production chain, flagship vocal clarity, full arrangement movement, instrumental weight, and mastered final loudness.`,
           lyricsText: lyrics,
           lyricsMode: lyrics.trim() ? 'manual' : 'auto',
           instrumental: false,
-          styleText: `${quality}, ${mood}, ${voice} ${singer}, big hook, strong beat, rich harmony, studio texture`,
+          styleText: `${quality}, ${mood}, ${voice} ${singer}, big hook, strong beat, rich harmony, studio texture, clean vocal, powerful instrumental`,
           artistName: '',
           weirdness: version === 'A' ? 35 : 58,
           styleInfluence: version === 'A' ? 72 : 86,
           durationMode: 'full',
           variantLabel: version === 'A' ? 'Version A polished commercial master' : 'Version B deep cold cinematic master',
           voice: `${singer} ${voice}`,
+          vocalProduction: studio.vocalProduction,
+          instrumentalProduction: studio.instrumentalProduction,
+          masteringProfile: studio.masteringProfile,
+          negativeProductionRules: studio.negativeProductionRules,
+          sectionMap: studio.sectionMap,
         });
         setProgress(`Saving Version ${version}...`);
         const blob = audioBase64ToBlob(response.audioBase64, response.mimeType);
@@ -333,9 +367,9 @@ export default function AppStudio() {
               <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_82%_10%,rgba(212,169,69,.18),transparent_28%)]" />
               <div className="relative grid gap-8 lg:grid-cols-[1fr_260px]">
                 <div>
-                  <p className="mb-3 text-xs font-black uppercase tracking-[0.34em] text-[#D4A945]">Studio Master V3</p>
+                  <p className="mb-3 text-xs font-black uppercase tracking-[0.34em] text-[#D4A945]">Studio Master V4</p>
                   <h2 className="max-w-2xl break-words text-3xl font-black tracking-tight text-white sm:text-4xl md:text-5xl">Make a release-ready song</h2>
-                  <p className="mt-4 max-w-2xl text-sm leading-7 text-zinc-400">Write the idea, choose voice and sound direction, then Taurus builds two studio versions with stronger beat, richer harmony, and full-song structure.</p>
+                  <p className="mt-4 max-w-2xl text-sm leading-7 text-zinc-400">Write the idea, choose voice and sound direction, then Taurus builds two studio versions with stronger vocal chain, heavier instrumental production, and mastered full-song structure.</p>
                   <div className="mt-6 flex flex-wrap gap-3 text-xs font-black uppercase tracking-[0.2em] text-zinc-500"><span className="rounded-full border border-[#D4A94533] bg-[#D4A9450d] px-4 py-2 text-[#D4A945]">Full song map</span><span className="rounded-full border border-white/10 bg-black/30 px-4 py-2">Two versions</span><span className="rounded-full border border-white/10 bg-black/30 px-4 py-2">Studio texture</span></div>
                 </div>
                 <div className="rounded-[1.75rem] border border-[#D4A94533] bg-[#D4A9450d] p-5">
@@ -393,7 +427,7 @@ export default function AppStudio() {
             <div className="mt-5 space-y-4">
               <div className="rounded-3xl border border-[#D4A94533] bg-[#D4A9450d] p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-[#D4A945]">Credits</p><p className="mt-2 text-2xl font-black text-white">{credits}</p></div>
               <div className="grid grid-cols-2 gap-3"><div className="rounded-3xl bg-black/30 p-4"><p className="text-xs text-zinc-500">Free month</p><p className="mt-1 text-xl font-black">{daily}</p></div><div className="rounded-3xl bg-black/30 p-4"><p className="text-xs text-zinc-500">Songs</p><p className="mt-1 text-xl font-black">{history.length}</p></div></div>
-              <div className="rounded-3xl border border-white/10 bg-black/30 p-4"><p className="text-xs font-black uppercase tracking-[0.22em] text-zinc-500">Signal Chain</p><div className="mt-3 space-y-2 text-sm text-zinc-400"><p>Prompt &gt; Lyrics &gt; Style</p><p>Voice &gt; Arrangement &gt; Master</p><p>Save &gt; History &gt; Export</p></div></div>
+              <div className="rounded-3xl border border-white/10 bg-black/30 p-4"><p className="text-xs font-black uppercase tracking-[0.22em] text-zinc-500">Signal Chain</p><div className="mt-3 space-y-2 text-sm text-zinc-400"><p>Prompt &gt; Lyrics &gt; Section Map</p><p>Vocal Chain &gt; Instrumental Chain</p><p>Master &gt; Save &gt; Export</p></div></div>
               <button onClick={() => openPanel('voice')} className="w-full rounded-2xl border border-[#D4A94555] bg-transparent px-4 py-3 text-sm font-black text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black"><Mic2 className="mr-2 inline h-4 w-4"/>Open Taurus Voice</button>
             </div>
           </div>}{activePage === 'wallet' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-2xl font-bold"><Wallet className="mr-2 inline h-5 w-5"/>Wallet</h3><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Credits</p><p className="mt-1 text-2xl font-bold">{credits}</p></div><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Free month</p><p className="mt-1 text-2xl font-bold">{daily}</p></div></div>{expiry>0 && <p className="mt-2 text-xs text-zinc-500">Expires {formatDate(expiry)}</p>}</div>}{activePage === 'plans' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-xl font-bold"><CreditCard className="mr-2 inline h-5 w-5"/>TaurusPay</h3><p className="mt-2 text-sm text-zinc-400">USDT on TON. Exact amount only. Underpay fails, overpay goes to manual review.</p><div className="mt-4 grid gap-3">{PACKAGES.map(p => <button key={p.id} onClick={() => { setTier(p.id); setTaurusPayInvoice(null); }} className={`rounded-3xl border p-4 text-left ${tier===p.id?'border-[#D4A945] bg-[#D4A94514]':'border-white/10 bg-black/20'}`}><div className="flex justify-between gap-3"><p className="font-semibold">{p.title}</p><p>{p.price}</p></div><p className="text-sm text-zinc-400">{p.credits}</p></button>)}</div><label className="mt-4 block rounded-3xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-300"><span className="mb-2 block font-semibold">Your Telegram / TON wallet</span><input value={paymentWallet} onChange={e => setPaymentWallet(e.target.value)} placeholder="UQ... wallet address" className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none focus:border-[#D4A94588]"/></label><button onClick={submitPayment} disabled={!user || submitting} className="mt-4 w-full rounded-3xl bg-[#D4A945] px-5 py-3 font-black text-black disabled:opacity-50">{submitting ? <Loader2 className="mr-2 inline h-4 w-4 animate-spin"/> : <CheckCircle2 className="mr-2 inline h-4 w-4"/>}Create TaurusPay Invoice</button>{taurusPayInvoice && <div className="mt-4 rounded-3xl border border-[#D4A94533] bg-[#D4A9450d] p-4 text-sm"><p className="font-black text-[#D4A945]">Invoice {taurusPayInvoice.status}</p><div className="mt-3 space-y-2 text-zinc-300"><p>Network: {taurusPayInvoice.network}</p><p>Asset: {taurusPayInvoice.asset}</p><p>Amount: {taurusPayInvoice.amount} {taurusPayInvoice.asset}</p><p className="break-all">Recipient: {taurusPayInvoice.recipient}</p><p className="break-all">Memo: {taurusPayInvoice.memo || taurusPayInvoice.reference}</p></div><button onClick={checkTaurusPayStatus} disabled={submitting} className="mt-4 w-full rounded-2xl border border-[#D4A94555] px-4 py-3 font-black text-[#D4A945] disabled:opacity-50">Check Payment Status</button></div>}</div>}</aside>
