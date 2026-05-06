@@ -34,6 +34,8 @@ interface StudioRoute {
 const GENRES = ['Rap', 'Motivation', 'Chill Rap', 'Pop', 'Hip-hop', 'Cinematic', 'Myanmar'];
 const MOODS = ['Motivation', 'Chill', 'Romantic', 'Sad', 'Epic'];
 const VOICES = ['Deep', 'Cold', 'Warm', 'Soft', 'Power'];
+const VOICE_STRENGTHS = ['Power Vocal', 'Soft Vocal', 'Cold Vocal', 'Studio Vocal', 'Duet'];
+const INSTRUMENT_CHOICES = ['Piano', 'Guitar', 'Bass Boost', 'Violin', '808', 'Drums', 'Strings', 'Synth'];
 const SINGERS = ['Male', 'Female', 'Duet'];
 const LANGS = ['Burmese', 'English', 'Burmese + English'];
 const QUALITY = ['Taurus Studio', 'Taurus Apex', 'Taurus Custom'];
@@ -89,24 +91,37 @@ const formatDate = (value: number) => new Intl.DateTimeFormat('en', { month: 'sh
 const compactTitle = (idea: string, mood: string, genre: string, v: string) => `${idea.replace(/3[- ]?minute|create|song|about/gi, '').replace(/[^a-zA-Z0-9\u1000-\u109F\s-]/g, '').trim().split(/\s+/).slice(0, 5).join(' ') || `${mood} ${genre}`} (${v})`;
 const compactWalletAddress = (address: string) => address ? `${address.slice(0, 6)}...${address.slice(-6)}` : '';
 
-const getStudioProductionPreset = (s: { genre: string; mood: string; voice: string; singer: string; lang: string; bpm: number; structure: string; version: 'A' | 'B'; }) => {
+const getVoiceStrengthProfile = (voiceStrength: string) => {
+  if (voiceStrength === 'Soft Vocal') return 'soft but expensive studio vocal, intimate close-mic warmth, smooth air, controlled emotion, no weak volume.';
+  if (voiceStrength === 'Cold Vocal') return 'cold powerful vocal, deep presence, tight breath control, crisp consonants, dark premium tone, front-of-mix focus.';
+  if (voiceStrength === 'Duet') return 'duet-ready vocal stack, lead plus support voice, wide hook doubles, call-response ad-libs, balanced male/female harmony if useful.';
+  if (voiceStrength === 'Studio Vocal') return 'professional booth vocal, clean preamp feel, full-bodied tone, upfront center image, polished compression and de-essing.';
+  return 'maximum power vocal, huge front-facing presence, thick lead body, strong projection, premium hook stacks, high perceived loudness without clipping.';
+};
+
+const getStudioProductionPreset = (s: { genre: string; mood: string; voice: string; voiceStrength: string; singer: string; lang: string; bpm: number; structure: string; instruments: string[]; version: 'A' | 'B'; }) => {
   const energy = s.version === 'A' ? 'clean, confident, radio-forward' : 'bigger, deeper, more cinematic';
+  const selectedInstruments = s.instruments.length ? s.instruments.join(', ') : 'Piano, Bass Boost, 808, Drums';
+  const voiceProfile = getVoiceStrengthProfile(s.voiceStrength);
   return {
     vocalProduction: [
-      `${s.singer} ${s.voice} vocal, ${energy} lead performance.`,
-      'Lead vocal must sit upfront and centered with clear consonants, controlled breath, natural vibrato, confident pitch, emotional phrases, and no robotic delivery.',
+      `${s.singer} ${s.voice} ${s.voiceStrength}, ${energy} lead performance.`,
+      voiceProfile,
+      'Make the vocal feel recorded in a real studio booth: close condenser mic texture, clean preamp, tight pitch, polished compression, de-essing, tasteful saturation, wide hook doubles, and no room noise.',
+      'Lead vocal must sit extremely upfront and centered with clear consonants, controlled breath, natural vibrato, confident pitch, emotional phrases, and no robotic delivery.',
       'Add tasteful double-tracking on hooks, low harmony/support stacks, short ad-libs before transitions, and call-response accents where useful.',
       s.lang.toLowerCase().includes('burmese') ? 'Myanmar/Burmese pronunciation must be natural, syllables must land on beat, and words must not sound broken or foreign.' : 'Pronunciation must follow the selected language naturally.',
     ].join(' '),
     instrumentalProduction: [
       `${s.genre} ${s.mood} arrangement at ${s.bpm} BPM.`,
+      `Selected instruments must drive the arrangement: ${selectedInstruments}.`,
       'Drums must hit hard with punchy kick, tight snare/clap, rolling hats, percussion movement every 8 bars, fills into hooks, and a real drop lift.',
-      '808/sub bass must be deep, clean, tuned, sidechain-aware, and not muddy. Piano/guitar/synth/strings must create rich harmony, counter melody, and section movement.',
+      '808/sub bass and bass boost must be deep, clean, tuned, sidechain-aware, and not muddy. Piano/guitar/violin/synth/strings must create rich harmony, counter melody, and section movement when selected.',
       'Avoid loop-only backing. Each section needs new layers, risers, breaks, impacts, and a bigger final chorus.',
     ].join(' '),
     masteringProfile: [
-      'Mix like a modern studio master: vocal clear above beat, controlled low end, separated mids, wide chorus stereo, smooth reverb/delay tails, de-essed highs, glue compression, limiter, and release-ready loudness.',
-      'Do not clip, pump badly, distort the vocal, bury the lyric, or leave dead silence before the ending.',
+      'Mix like a modern studio master with very high perceived loudness: vocal huge and clear above beat, controlled low end, separated mids, wide chorus stereo, smooth reverb/delay tails, de-essed highs, glue compression, limiter, and release-ready volume.',
+      'Make it feel powerful at maximum energy, but do not clip, pump badly, distort the vocal, bury the lyric, or leave dead silence before the ending.',
     ].join(' '),
     negativeProductionRules: [
       'No karaoke feel. No thin demo. No weak drums. No muddy bass. No flat chord loop. No off-key vocal. No random mumbling. No abrupt cutoff. No cheap phone-recording texture.',
@@ -118,7 +133,7 @@ const getStudioProductionPreset = (s: { genre: string; mood: string; voice: stri
   };
 };
 
-const buildStudioPrompt = (s: { idea: string; lyrics: string; genre: string; mood: string; voice: string; singer: string; lang: string; bpm: number; structure: string; quality: string; version: 'A' | 'B'; }) => {
+const buildStudioPrompt = (s: { idea: string; lyrics: string; genre: string; mood: string; voice: string; voiceStrength: string; singer: string; lang: string; bpm: number; structure: string; quality: string; instruments: string[]; version: 'A' | 'B'; }) => {
   const versionRule = s.version === 'A'
     ? 'Version A: flagship polished radio master, clean hook, commercial replay value, bright controlled energy.'
     : 'Version B: flagship deep cinematic master, colder low-end, more tension, heavier lift, same quality level as Version A.';
@@ -126,7 +141,8 @@ const buildStudioPrompt = (s: { idea: string; lyrics: string; genre: string; moo
   return [
     `Taurus Studio Master v4. Create a full ${s.lang} ${s.genre} track at ${s.bpm} BPM.`,
     `Quality: ${s.quality}. Make it feel expensive, studio-made, emotional and finished.`,
-    `Idea: ${s.idea}. Mood: ${s.mood}. Voice: ${s.singer} ${s.voice}.`,
+    `Idea: ${s.idea}. Mood: ${s.mood}. Voice: ${s.singer} ${s.voice} with ${s.voiceStrength}.`,
+    `Instrument choices: ${s.instruments.length ? s.instruments.join(', ') : 'Piano, Bass Boost, 808, Drums'}. These must be audible and shape the arrangement.`,
     `Section map: ${studio.sectionMap}`,
     versionRule,
     `Vocal production: ${studio.vocalProduction}`,
@@ -162,6 +178,8 @@ export default function AppStudio() {
   const [genre, setGenre] = useState('Rap');
   const [mood, setMood] = useState('Motivation');
   const [voice, setVoice] = useState('Deep');
+  const [voiceStrength, setVoiceStrength] = useState('Power Vocal');
+  const [instruments, setInstruments] = useState<string[]>(['Piano', 'Bass Boost', '808', 'Drums']);
   const [singer, setSinger] = useState('Male');
   const [lang, setLang] = useState('Burmese');
   const [quality, setQuality] = useState('Taurus Studio');
@@ -277,6 +295,9 @@ export default function AppStudio() {
 
   const downloadSong = (song: Song) => { const link = document.createElement('a'); link.href = song.audioUrl; link.download = `${song.idea || 'taurus-song'}.mp3`.replace(/[^a-z0-9._-]+/gi, '-'); link.click(); };
   const setFeedback = (label: string) => setProgress(`Feedback saved: ${label}. Next version will tune stronger.`);
+  const toggleInstrument = (item: string) => setInstruments(current => (
+    current.includes(item) ? current.filter(value => value !== item) : [...current, item]
+  ));
 
   const generate = async () => {
     if (!user) return setError('Login with Gmail first.');
@@ -289,23 +310,23 @@ export default function AppStudio() {
       if (!usage.allowed) throw new Error(`Not enough credits. Remaining: ${usage.remaining}.`);
       for (const version of ['A', 'B'] as const) {
         setProgress(`Generating Version ${version}...`);
-        const compiled = buildStudioPrompt({ idea, lyrics, genre, mood, voice, singer, lang, bpm, structure, quality, version });
-        const studio = getStudioProductionPreset({ genre, mood, voice, singer, lang, bpm, structure, version });
+        const compiled = buildStudioPrompt({ idea, lyrics, genre, mood, voice, voiceStrength, singer, lang, bpm, structure, quality, instruments, version });
+        const studio = getStudioProductionPreset({ genre, mood, voice, voiceStrength, singer, lang, bpm, structure, instruments, version });
         const response = await postJson<GenerateResponse>('/api/generate-song', {
           prompt: compiled,
-          genreDescription: `${genre}, ${mood}, ${lang}, ${bpm} BPM, Taurus Studio Master v4`,
+          genreDescription: `${genre}, ${mood}, ${lang}, ${bpm} BPM, ${instruments.join(', ') || 'studio core'}, Taurus Studio Master v4`,
           arrangementDescription: studio.instrumentalProduction,
-          modelProfile: `${quality}: Taurus Studio v4 production chain, flagship vocal clarity, full arrangement movement, instrumental weight, and mastered final loudness.`,
+          modelProfile: `${quality}: Taurus Studio v4 production chain, ${voiceStrength}, flagship vocal clarity, full arrangement movement, selected instrument weight, and mastered maximum perceived loudness without clipping.`,
           lyricsText: lyrics,
           lyricsMode: lyrics.trim() ? 'manual' : 'auto',
           instrumental: false,
-          styleText: `${quality}, ${mood}, ${voice} ${singer}, big hook, strong beat, rich harmony, studio texture, clean vocal, powerful instrumental`,
+          styleText: `${quality}, ${mood}, ${voice} ${singer}, ${voiceStrength}, ${instruments.join(', ') || 'studio core'}, big hook, strong beat, rich harmony, studio booth vocal, powerful instrumental`,
           artistName: '',
           weirdness: version === 'A' ? 35 : 58,
           styleInfluence: version === 'A' ? 72 : 86,
           durationMode: 'full',
           variantLabel: version === 'A' ? 'Version A polished commercial master' : 'Version B deep cold cinematic master',
-          voice: `${singer} ${voice}`,
+          voice: `${singer} ${voice} ${voiceStrength}`,
           vocalProduction: studio.vocalProduction,
           instrumentalProduction: studio.instrumentalProduction,
           masteringProfile: studio.masteringProfile,
@@ -409,7 +430,8 @@ export default function AppStudio() {
                   <Sparkles className="h-8 w-8 text-[#D4A945]"/>
                   <div className="mt-8 space-y-4">
                     <div><p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-500">Quality</p><p className="mt-1 font-black text-white">{quality}</p></div>
-                    <div><p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-500">Voice</p><p className="mt-1 font-black text-white">{singer} {voice}</p></div>
+                    <div><p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-500">Voice</p><p className="mt-1 font-black text-white">{singer} {voice}</p><p className="mt-1 text-xs text-[#D4A945]">{voiceStrength}</p></div>
+                    <div><p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-500">Instruments</p><p className="mt-1 text-sm font-black text-white">{instruments.join(' · ') || 'Studio Core'}</p></div>
                     <div><p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-500">Tempo</p><p className="mt-1 font-black text-white">{bpm} BPM</p></div>
                   </div>
                 </div>
@@ -429,11 +451,11 @@ export default function AppStudio() {
               <div className="relative mt-6 grid gap-5 lg:grid-cols-2">
                 <div className="rounded-[1.75rem] border border-white/10 bg-black/30 p-5">
                   <h3 className="mb-5 text-lg font-black">Sound DNA</h3>
-                  <div className="space-y-5"><div><p className="mb-2 text-sm font-bold text-zinc-300">Quality</p>{chips(QUALITY, quality, setQuality)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Genre</p>{chips(GENRES, genre, setGenre)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Mood</p>{chips(MOODS, mood, setMood)}</div></div>
+                  <div className="space-y-5"><div><p className="mb-2 text-sm font-bold text-zinc-300">Quality</p>{chips(QUALITY, quality, setQuality)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Genre</p>{chips(GENRES, genre, setGenre)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Mood</p>{chips(MOODS, mood, setMood)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Instruments</p><div className="flex flex-wrap gap-2">{INSTRUMENT_CHOICES.map(item => <button key={item} onClick={() => toggleInstrument(item)} className={`rounded-2xl border px-3 py-2 text-sm font-semibold transition-colors ${instruments.includes(item) ? 'border-[#D4A945] bg-[#D4A945] text-black' : 'border-white/10 bg-white/[0.04] text-zinc-400 hover:border-[#D4A94555] hover:text-white'}`}>{item}</button>)}</div></div></div>
                 </div>
                 <div className="rounded-[1.75rem] border border-white/10 bg-black/30 p-5">
                   <h3 className="mb-5 text-lg font-black">Voice Direction</h3>
-                  <div className="space-y-5"><div><p className="mb-2 text-sm font-bold text-zinc-300">Voice</p>{chips(VOICES, voice, setVoice)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Singer</p>{chips(SINGERS, singer, setSinger)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Language</p>{chips(LANGS, lang, setLang)}</div></div>
+                  <div className="space-y-5"><div><p className="mb-2 text-sm font-bold text-zinc-300">Voice</p>{chips(VOICES, voice, setVoice)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Strength</p>{chips(VOICE_STRENGTHS, voiceStrength, setVoiceStrength)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Singer</p>{chips(SINGERS, singer, setSinger)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Language</p>{chips(LANGS, lang, setLang)}</div></div>
                 </div>
               </div>
 
