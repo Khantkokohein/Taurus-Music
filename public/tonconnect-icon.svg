@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Taurus Music">
+  <rect width="256" height="256" rx="56" fill="#070707"/>
+  <path d="M64 60h128l-64 132L64 60Z" fill="#D4A945"/>
+  <path d="M93 82h70l-35 72-35-72Z" fill="#070707"/>
+  <circle cx="128" cy="128" r="18" fill="#D4A945"/>
+</svg>

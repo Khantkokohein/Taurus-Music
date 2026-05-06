@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { TonConnectButton, useTonAddress, useTonConnectModal, useTonWallet } from '@tonconnect/ui-react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, doc, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { AlertCircle, CheckCircle2, Clock3, Code2, CreditCard, Download, History, Loader2, LogOut, Mic2, Music, Pause, Play, Search, Settings, Sparkles, ThumbsDown, ThumbsUp, User as UserIcon, Wallet } from 'lucide-react';
@@ -86,6 +87,7 @@ const routeHash = (route: StudioRoute) => `#${route.page}${route.panel ? `/${rou
 
 const formatDate = (value: number) => new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(value);
 const compactTitle = (idea: string, mood: string, genre: string, v: string) => `${idea.replace(/3[- ]?minute|create|song|about/gi, '').replace(/[^a-zA-Z0-9\u1000-\u109F\s-]/g, '').trim().split(/\s+/).slice(0, 5).join(' ') || `${mood} ${genre}`} (${v})`;
+const compactWalletAddress = (address: string) => address ? `${address.slice(0, 6)}...${address.slice(-6)}` : '';
 
 const getStudioProductionPreset = (s: { genre: string; mood: string; voice: string; singer: string; lang: string; bpm: number; structure: string; version: 'A' | 'B'; }) => {
   const energy = s.version === 'A' ? 'clean, confident, radio-forward' : 'bigger, deeper, more cinematic';
@@ -166,6 +168,9 @@ export default function AppStudio() {
   const [bpm, setBpm] = useState(120);
   const [structure, setStructure] = useState('3:00 Studio Map');
   const audioRef = useRef(new Audio());
+  const tonAddress = useTonAddress();
+  const tonWallet = useTonWallet();
+  const tonModal = useTonConnectModal();
 
   const applyRoute = (route: StudioRoute) => {
     setActivePage(route.page);
@@ -196,6 +201,11 @@ export default function AppStudio() {
   const admin = owner || profile?.role === 'admin';
   const taurusId = profile?.taurusId || (user ? buildTaurusAccountCode(user.uid) : '');
   const filtered = useMemo(() => history.filter(s => `${s.idea} ${s.prompt}`.toLowerCase().includes(search.toLowerCase())), [history, search]);
+  const connectedWalletLabel = tonAddress ? compactWalletAddress(tonAddress) : 'Not connected';
+
+  useEffect(() => {
+    if (tonAddress) setPaymentWallet(tonAddress);
+  }, [tonAddress]);
 
   useEffect(() => {
     const initialRoute = readStudioRoute();
@@ -330,8 +340,19 @@ export default function AppStudio() {
     finally { setSubmitting(false); }
   };
 
-  const chips = (items: string[], value: string, set: (v: string) => void) => <div className="flex flex-wrap gap-2">{items.map(i => <button key={i} onClick={() => set(i)} className={`rounded-2xl border px-3 py-2 text-sm font-semibold transition-colors ${value === i ? 'border-[#D4A945] bg-[#D4A945] text-black' : 'border-white/10 bg-white/[0.04] text-zinc-400 hover:border-[#D4A94555] hover:text-white'}`}>{i}</button>)}</div>;
+  const openWalletPayment = () => {
+    if (!tonAddress) {
+      tonModal.open();
+      return;
+    }
+    setPaymentWallet(tonAddress);
+    navigatePage('plans');
+  };
+
   const expiry = getTimestampMillis(profile?.subscriptionExpiresAt);
+  const walletPanel = <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-2xl font-bold"><Wallet className="mr-2 inline h-5 w-5"/>Wallet</h3><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Credits</p><p className="mt-1 text-2xl font-bold">{credits}</p></div><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Free month</p><p className="mt-1 text-2xl font-bold">{daily}</p></div></div>{expiry>0 && <p className="mt-2 text-xs text-zinc-500">Expires {formatDate(expiry)}</p>}<div className="mt-5 rounded-3xl border border-[#D4A94533] bg-[#D4A9450d] p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.24em] text-[#D4A945]">TON Wallet</p><p className="mt-2 font-black text-white">{tonWallet ? 'Connected' : 'Connect required'}</p><p className="mt-1 break-all font-mono text-xs text-zinc-400">{tonAddress || 'Telegram Wallet / TON wallet not connected.'}</p></div><span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase ${tonAddress ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/10 text-zinc-400'}`}>{connectedWalletLabel}</span></div><div className="mt-4 flex flex-col gap-3"><TonConnectButton className="ton-connect-button"/><button onClick={openWalletPayment} className="rounded-2xl bg-[#D4A945] px-4 py-3 text-sm font-black text-black transition-colors hover:bg-[#e6bd5b]">{tonAddress ? 'Use Wallet for TaurusPay' : 'Connect Wallet'}</button></div></div></div>;
+  const plansPanel = <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-xl font-bold"><CreditCard className="mr-2 inline h-5 w-5"/>TaurusPay</h3><p className="mt-2 text-sm text-zinc-400">USDT on TON. Exact amount only. Underpay fails, overpay goes to manual review.</p><div className="mt-4 rounded-3xl border border-white/10 bg-black/20 p-4 text-sm"><div className="flex items-center justify-between gap-3"><div><p className="font-semibold text-zinc-200">Connected wallet</p><p className="mt-1 break-all font-mono text-xs text-zinc-500">{tonAddress || 'Not connected yet'}</p></div><span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase ${tonAddress ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/10 text-zinc-400'}`}>{connectedWalletLabel}</span></div><div className="mt-3"><TonConnectButton className="ton-connect-button"/></div></div><div className="mt-4 grid gap-3">{PACKAGES.map(p => <button key={p.id} onClick={() => { setTier(p.id); setTaurusPayInvoice(null); }} className={`rounded-3xl border p-4 text-left ${tier===p.id?'border-[#D4A945] bg-[#D4A94514]':'border-white/10 bg-black/20'}`}><div className="flex justify-between gap-3"><p className="font-semibold">{p.title}</p><p>{p.price}</p></div><p className="text-sm text-zinc-400">{p.credits}</p></button>)}</div><label className="mt-4 block rounded-3xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-300"><span className="mb-2 block font-semibold">Your Telegram / TON wallet</span><input value={paymentWallet} onChange={e => setPaymentWallet(e.target.value)} placeholder="UQ... wallet address" className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none focus:border-[#D4A94588]"/></label><button onClick={submitPayment} disabled={!user || submitting} className="mt-4 w-full rounded-3xl bg-[#D4A945] px-5 py-3 font-black text-black disabled:opacity-50">{submitting ? <Loader2 className="mr-2 inline h-4 w-4 animate-spin"/> : <CheckCircle2 className="mr-2 inline h-4 w-4"/>}Create TaurusPay Invoice</button>{taurusPayInvoice && <div className="mt-4 rounded-3xl border border-[#D4A94533] bg-[#D4A9450d] p-4 text-sm"><p className="font-black text-[#D4A945]">Invoice {taurusPayInvoice.status}</p><div className="mt-3 space-y-2 text-zinc-300"><p>Network: {taurusPayInvoice.network}</p><p>Asset: {taurusPayInvoice.asset}</p><p>Amount: {taurusPayInvoice.amount} {taurusPayInvoice.asset}</p><p className="break-all">Recipient: {taurusPayInvoice.recipient}</p><p className="break-all">Memo: {taurusPayInvoice.memo || taurusPayInvoice.reference}</p></div><button onClick={checkTaurusPayStatus} disabled={submitting} className="mt-4 w-full rounded-2xl border border-[#D4A94555] px-4 py-3 font-black text-[#D4A945] disabled:opacity-50">Check Payment Status</button></div>}</div>;
+  const chips = (items: string[], value: string, set: (v: string) => void) => <div className="flex flex-wrap gap-2">{items.map(i => <button key={i} onClick={() => set(i)} className={`rounded-2xl border px-3 py-2 text-sm font-semibold transition-colors ${value === i ? 'border-[#D4A945] bg-[#D4A945] text-black' : 'border-white/10 bg-white/[0.04] text-zinc-400 hover:border-[#D4A94555] hover:text-white'}`}>{i}</button>)}</div>;
 
   if (activePage === 'landing') {
     return <div className="min-h-screen bg-[#080812] text-zinc-100">
@@ -430,7 +451,7 @@ export default function AppStudio() {
               <div className="rounded-3xl border border-white/10 bg-black/30 p-4"><p className="text-xs font-black uppercase tracking-[0.22em] text-zinc-500">Signal Chain</p><div className="mt-3 space-y-2 text-sm text-zinc-400"><p>Prompt &gt; Lyrics &gt; Section Map</p><p>Vocal Chain &gt; Instrumental Chain</p><p>Master &gt; Save &gt; Export</p></div></div>
               <button onClick={() => openPanel('voice')} className="w-full rounded-2xl border border-[#D4A94555] bg-transparent px-4 py-3 text-sm font-black text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black"><Mic2 className="mr-2 inline h-4 w-4"/>Open Taurus Voice</button>
             </div>
-          </div>}{activePage === 'wallet' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-2xl font-bold"><Wallet className="mr-2 inline h-5 w-5"/>Wallet</h3><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Credits</p><p className="mt-1 text-2xl font-bold">{credits}</p></div><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Free month</p><p className="mt-1 text-2xl font-bold">{daily}</p></div></div>{expiry>0 && <p className="mt-2 text-xs text-zinc-500">Expires {formatDate(expiry)}</p>}</div>}{activePage === 'plans' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-xl font-bold"><CreditCard className="mr-2 inline h-5 w-5"/>TaurusPay</h3><p className="mt-2 text-sm text-zinc-400">USDT on TON. Exact amount only. Underpay fails, overpay goes to manual review.</p><div className="mt-4 grid gap-3">{PACKAGES.map(p => <button key={p.id} onClick={() => { setTier(p.id); setTaurusPayInvoice(null); }} className={`rounded-3xl border p-4 text-left ${tier===p.id?'border-[#D4A945] bg-[#D4A94514]':'border-white/10 bg-black/20'}`}><div className="flex justify-between gap-3"><p className="font-semibold">{p.title}</p><p>{p.price}</p></div><p className="text-sm text-zinc-400">{p.credits}</p></button>)}</div><label className="mt-4 block rounded-3xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-300"><span className="mb-2 block font-semibold">Your Telegram / TON wallet</span><input value={paymentWallet} onChange={e => setPaymentWallet(e.target.value)} placeholder="UQ... wallet address" className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none focus:border-[#D4A94588]"/></label><button onClick={submitPayment} disabled={!user || submitting} className="mt-4 w-full rounded-3xl bg-[#D4A945] px-5 py-3 font-black text-black disabled:opacity-50">{submitting ? <Loader2 className="mr-2 inline h-4 w-4 animate-spin"/> : <CheckCircle2 className="mr-2 inline h-4 w-4"/>}Create TaurusPay Invoice</button>{taurusPayInvoice && <div className="mt-4 rounded-3xl border border-[#D4A94533] bg-[#D4A9450d] p-4 text-sm"><p className="font-black text-[#D4A945]">Invoice {taurusPayInvoice.status}</p><div className="mt-3 space-y-2 text-zinc-300"><p>Network: {taurusPayInvoice.network}</p><p>Asset: {taurusPayInvoice.asset}</p><p>Amount: {taurusPayInvoice.amount} {taurusPayInvoice.asset}</p><p className="break-all">Recipient: {taurusPayInvoice.recipient}</p><p className="break-all">Memo: {taurusPayInvoice.memo || taurusPayInvoice.reference}</p></div><button onClick={checkTaurusPayStatus} disabled={submitting} className="mt-4 w-full rounded-2xl border border-[#D4A94555] px-4 py-3 font-black text-[#D4A945] disabled:opacity-50">Check Payment Status</button></div>}</div>}</aside>
+          </div>}{activePage === 'wallet' && walletPanel}{activePage === 'plans' && plansPanel}</aside>
         </div>
       </main>
     </div>
