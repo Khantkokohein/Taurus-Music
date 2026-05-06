@@ -86,10 +86,24 @@ const creatorVisuals = [
   { name: 'Stage Cut', role: 'Creator', image: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?auto=format&fit=crop&w=500&q=80', glow: 'from-cyan-400/25 via-violet-500/25 to-[#D4A945]/28' },
 ];
 
+const sampleChallengeEntries: ChallengeEntry[] = [
+  { id: 'demo-entry-01', challengeId: 'demo-challenge', userId: 'demo-user-01', sourceSongId: 'demo-song-01', title: 'Golden Room Anthem', prompt: 'Demo studio anthem with bright hook, big drums, clean vocal energy, and a premium master feel.', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3', mimeType: 'audio/mpeg', lyrics: 'Demo audio preview for Taurus Studio Challenge.', authorName: 'Taurus Demo 01', authorEmail: '', createdAt: Date.UTC(2026, 4, 16, 10), publishedAt: Date.UTC(2026, 4, 16, 10), likeCount: 12400, commentCount: 342, saveCount: 2100, score: 14842, visibility: 'public', originalOnly: true },
+  { id: 'demo-entry-02', challengeId: 'demo-challenge', userId: 'demo-user-02', sourceSongId: 'demo-song-02', title: 'Neon Vocal Drive', prompt: 'Demo pop track with neon synths, punchy bass, and a confident studio vocal direction.', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3', mimeType: 'audio/mpeg', lyrics: 'Demo audio preview for Taurus Studio Challenge.', authorName: 'Taurus Demo 02', authorEmail: '', createdAt: Date.UTC(2026, 4, 16, 11), publishedAt: Date.UTC(2026, 4, 16, 11), likeCount: 9800, commentCount: 288, saveCount: 1850, score: 11938, visibility: 'public', originalOnly: true },
+  { id: 'demo-entry-03', challengeId: 'demo-challenge', userId: 'demo-user-03', sourceSongId: 'demo-song-03', title: 'Studio Night Pulse', prompt: 'Demo late-night groove with warm keys, deep low end, and clean mix movement.', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3', mimeType: 'audio/mpeg', lyrics: 'Demo audio preview for Taurus Studio Challenge.', authorName: 'Taurus Demo 03', authorEmail: '', createdAt: Date.UTC(2026, 4, 16, 12), publishedAt: Date.UTC(2026, 4, 16, 12), likeCount: 8700, commentCount: 245, saveCount: 1640, score: 10585, visibility: 'public', originalOnly: true },
+  { id: 'demo-entry-04', challengeId: 'demo-challenge', userId: 'demo-user-04', sourceSongId: 'demo-song-04', title: 'Bass Gold Motion', prompt: 'Demo bass-forward track with cinematic lift, hard drums, and polished room energy.', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3', mimeType: 'audio/mpeg', lyrics: 'Demo audio preview for Taurus Studio Challenge.', authorName: 'Taurus Demo 04', authorEmail: '', createdAt: Date.UTC(2026, 4, 16, 13), publishedAt: Date.UTC(2026, 4, 16, 13), likeCount: 7600, commentCount: 221, saveCount: 1380, score: 9201, visibility: 'public', originalOnly: true },
+  { id: 'demo-entry-05', challengeId: 'demo-challenge', userId: 'demo-user-05', sourceSongId: 'demo-song-05', title: 'Velvet Hook Session', prompt: 'Demo hook-focused song with soft intro, powerful chorus, and clean studio master.', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3', mimeType: 'audio/mpeg', lyrics: 'Demo audio preview for Taurus Studio Challenge.', authorName: 'Taurus Demo 05', authorEmail: '', createdAt: Date.UTC(2026, 4, 16, 14), publishedAt: Date.UTC(2026, 4, 16, 14), likeCount: 6800, commentCount: 198, saveCount: 1205, score: 8203, visibility: 'public', originalOnly: true },
+  { id: 'demo-entry-06', challengeId: 'demo-challenge', userId: 'demo-user-06', sourceSongId: 'demo-song-06', title: 'Amber Stage Cut', prompt: 'Demo stage-ready arrangement with crisp percussion, wide chorus, and premium texture.', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3', mimeType: 'audio/mpeg', lyrics: 'Demo audio preview for Taurus Studio Challenge.', authorName: 'Taurus Demo 06', authorEmail: '', createdAt: Date.UTC(2026, 4, 16, 15), publishedAt: Date.UTC(2026, 4, 16, 15), likeCount: 5900, commentCount: 176, saveCount: 990, score: 7066, visibility: 'public', originalOnly: true },
+  { id: 'demo-entry-07', challengeId: 'demo-challenge', userId: 'demo-user-07', sourceSongId: 'demo-song-07', title: 'Original Fireline', prompt: 'Demo motivational music bed with strong rise, driving groove, and clear lead focus.', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3', mimeType: 'audio/mpeg', lyrics: 'Demo audio preview for Taurus Studio Challenge.', authorName: 'Taurus Demo 07', authorEmail: '', createdAt: Date.UTC(2026, 4, 16, 16), publishedAt: Date.UTC(2026, 4, 16, 16), likeCount: 5200, commentCount: 154, saveCount: 820, score: 6174, visibility: 'public', originalOnly: true },
+  { id: 'demo-entry-08', challengeId: 'demo-challenge', userId: 'demo-user-08', sourceSongId: 'demo-song-08', title: 'Cinematic Pop Room', prompt: 'Demo cinematic pop idea with piano, strings, deep bass, and polished final loudness.', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3', mimeType: 'audio/mpeg', lyrics: 'Demo audio preview for Taurus Studio Challenge.', authorName: 'Taurus Demo 08', authorEmail: '', createdAt: Date.UTC(2026, 4, 16, 17), publishedAt: Date.UTC(2026, 4, 16, 17), likeCount: 4500, commentCount: 133, saveCount: 690, score: 5323, visibility: 'public', originalOnly: true },
+  { id: 'demo-entry-09', challengeId: 'demo-challenge', userId: 'demo-user-09', sourceSongId: 'demo-song-09', title: 'Hook Maker Trial', prompt: 'Demo creator entry with punchy hook, clean drums, and public feed test audio.', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3', mimeType: 'audio/mpeg', lyrics: 'Demo audio preview for Taurus Studio Challenge.', authorName: 'Taurus Demo 09', authorEmail: '', createdAt: Date.UTC(2026, 4, 16, 18), publishedAt: Date.UTC(2026, 4, 16, 18), likeCount: 3900, commentCount: 118, saveCount: 560, score: 4578, visibility: 'public', originalOnly: true },
+  { id: 'demo-entry-10', challengeId: 'demo-challenge', userId: 'demo-user-10', sourceSongId: 'demo-song-10', title: 'Taurus Test Wave', prompt: 'Demo test wave for scrolling, listening, saving, commenting, and leaderboard preview.', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3', mimeType: 'audio/mpeg', lyrics: 'Demo audio preview for Taurus Studio Challenge.', authorName: 'Taurus Demo 10', authorEmail: '', createdAt: Date.UTC(2026, 4, 16, 19), publishedAt: Date.UTC(2026, 4, 16, 19), likeCount: 3200, commentCount: 96, saveCount: 440, score: 3736, visibility: 'public', originalOnly: true },
+];
+
 const formatCount = (value: number) => value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}K` : String(value || 0);
 const scoreOf = (entry: ChallengeEntry) => Number(entry.score || 0);
 const visualIndexFor = (seed: string) => Math.abs([...seed].reduce((total, char) => total + char.charCodeAt(0), 0)) % creatorVisuals.length;
 const visualForEntry = (entry: Pick<ChallengeEntry, 'id' | 'userId'>, index = 0) => creatorVisuals[visualIndexFor(entry.id || entry.userId || String(index))];
+const isDemoEntry = (entry: ChallengeEntry) => entry.id.startsWith('demo-entry-');
 
 function BackButton({ onBack }: { onBack: () => void }) {
   return <button type="button" onClick={onBack} className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-black text-zinc-200 hover:border-[#D4A94555] hover:text-[#D4A945]"><ArrowLeft className="h-4 w-4" />Back</button>;
@@ -201,7 +215,7 @@ function EntryCard({
         </div>
         <div className="mt-8 rounded-[1.5rem] border border-white/10 bg-black/45 p-4">
           <div className="flex items-center gap-4">
-            <button type="button" onClick={onPlay} className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-[#D4A945] text-black shadow-xl shadow-[#D4A94522]"><Play className="h-6 w-6 fill-current" /></button>
+            <button type="button" onClick={onPlay} aria-label={`Play ${entry.title}`} className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-[#D4A945] text-black shadow-xl shadow-[#D4A94522]"><Play className="h-6 w-6 fill-current" /></button>
             <div className="min-w-0 flex-1">
               <p className="truncate font-black text-white">{active ? 'Playing now' : 'Tap to listen'}</p>
               <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10"><div className={`h-full rounded-full bg-[#D4A945] ${active ? 'w-2/3' : 'w-1/4'}`} /></div>
@@ -224,9 +238,49 @@ function EntryCard({
 
 export default function ChallengeHub(props: ChallengeHubProps) {
   const [rulesLanguage, setRulesLanguage] = useState<'en' | 'my'>('en');
-  const sortedEntries = [...props.entries].sort((a, b) => scoreOf(b) - scoreOf(a));
+  const [demoReactionState, setDemoReactionState] = useState<ReactionState>({});
+  const [demoCommentText, setDemoCommentText] = useState<Record<string, string>>({});
+  const [demoStats, setDemoStats] = useState<Record<string, { likeDelta: number; saveDelta: number; commentDelta: number }>>({});
+  const showingDemoEntries = props.entries.length === 0;
+  const displayEntries = showingDemoEntries ? sampleChallengeEntries.map(entry => {
+    const stats = demoStats[entry.id] || { likeDelta: 0, saveDelta: 0, commentDelta: 0 };
+    return {
+      ...entry,
+      likeCount: entry.likeCount + stats.likeDelta,
+      saveCount: entry.saveCount + stats.saveDelta,
+      commentCount: entry.commentCount + stats.commentDelta,
+      score: entry.score + stats.likeDelta + stats.saveDelta + stats.commentDelta,
+    };
+  }) : props.entries;
+  const sortedEntries = [...displayEntries].sort((a, b) => scoreOf(b) - scoreOf(a));
   const topThree = sortedEntries.slice(0, 3);
   const quotaLimit = props.quotaLimit || CHALLENGE_GENERATE_ATTEMPTS;
+  const reactionState = showingDemoEntries ? demoReactionState : props.reactionState;
+  const commentTextByEntry = showingDemoEntries ? demoCommentText : props.commentTextByEntry;
+
+  const toggleDemoAction = (entry: ChallengeEntry, type: 'like' | 'save') => {
+    setDemoReactionState(current => {
+      const previous = current[entry.id] || {};
+      const field = type === 'like' ? 'liked' : 'saved';
+      const nextActive = !previous[field];
+      const deltaKey = type === 'like' ? 'likeDelta' : 'saveDelta';
+      setDemoStats(stats => {
+        const currentStats = stats[entry.id] || { likeDelta: 0, saveDelta: 0, commentDelta: 0 };
+        return { ...stats, [entry.id]: { ...currentStats, [deltaKey]: currentStats[deltaKey] + (nextActive ? 1 : -1) } };
+      });
+      return { ...current, [entry.id]: { ...previous, [field]: nextActive } };
+    });
+  };
+
+  const submitDemoComment = (entry: ChallengeEntry) => {
+    const cleanText = (demoCommentText[entry.id] || '').trim();
+    if (!cleanText) return;
+    setDemoStats(stats => {
+      const currentStats = stats[entry.id] || { likeDelta: 0, saveDelta: 0, commentDelta: 0 };
+      return { ...stats, [entry.id]: { ...currentStats, commentDelta: currentStats.commentDelta + 1 } };
+    });
+    setDemoCommentText(current => ({ ...current, [entry.id]: '' }));
+  };
 
   if (props.page === 'challenge-rules') {
     return <ChallengeShell onBack={props.onBack}>
@@ -270,11 +324,11 @@ export default function ChallengeHub(props: ChallengeHubProps) {
   if (props.page === 'challenge-feed') {
     return <ChallengeShell onBack={props.onBack}>
       <div className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-        <div><h2 className="text-4xl font-black text-white md:text-5xl">Challenge Media</h2><p className="mt-3 text-sm text-zinc-400">Swipe-style public listening feed for original entries.</p></div>
+        <div><h2 className="text-4xl font-black text-white md:text-5xl">Challenge Media</h2><p className="mt-3 text-sm text-zinc-400">{showingDemoEntries ? 'Demo feed: 10 sample audio entries for scroll and playback testing.' : 'Swipe-style public listening feed for original entries.'}</p></div>
         <button type="button" onClick={() => props.onNavigate('challenge-leaderboard')} className="rounded-2xl border border-[#D4A94555] px-5 py-3 text-sm font-black text-[#D4A945] hover:bg-[#D4A945] hover:text-black">Leaderboard</button>
       </div>
       <div className="max-h-[72vh] space-y-6 overflow-y-auto snap-y snap-mandatory pr-1">
-        {sortedEntries.length === 0 ? <EmptyFeed /> : sortedEntries.map((entry, index) => <React.Fragment key={entry.id}><EntryCard entry={entry} index={index} active={props.playingEntryId === entry.id} commentText={props.commentTextByEntry[entry.id] || ''} reactionState={props.reactionState[entry.id]} onPlay={() => props.onPlayEntry(entry)} onToggleLike={() => props.onToggleLike(entry)} onToggleSave={() => props.onToggleSave(entry)} onCommentChange={value => props.onCommentChange(entry.id, value)} onSubmitComment={() => props.onSubmitComment(entry)} /></React.Fragment>)}
+        {sortedEntries.length === 0 ? <EmptyFeed /> : sortedEntries.map((entry, index) => <React.Fragment key={entry.id}><EntryCard entry={entry} index={index} active={props.playingEntryId === entry.id} commentText={commentTextByEntry[entry.id] || ''} reactionState={reactionState[entry.id]} onPlay={() => props.onPlayEntry(entry)} onToggleLike={() => isDemoEntry(entry) ? toggleDemoAction(entry, 'like') : props.onToggleLike(entry)} onToggleSave={() => isDemoEntry(entry) ? toggleDemoAction(entry, 'save') : props.onToggleSave(entry)} onCommentChange={value => isDemoEntry(entry) ? setDemoCommentText(current => ({ ...current, [entry.id]: value.slice(0, 280) })) : props.onCommentChange(entry.id, value)} onSubmitComment={() => isDemoEntry(entry) ? submitDemoComment(entry) : props.onSubmitComment(entry)} /></React.Fragment>)}
       </div>
     </ChallengeShell>;
   }
@@ -343,7 +397,7 @@ export default function ChallengeHub(props: ChallengeHubProps) {
           <div className="flex items-center justify-between gap-3"><div><p className="font-black text-white">Post selected song</p><p className="mt-2 text-sm text-zinc-500">{props.entryId ? 'Entry already posted' : props.selectedSongTitle || 'Select a song from History first'}</p></div><ChevronRight className="h-5 w-5 text-[#D4A945]" /></div>
         </button>
         <div className="grid grid-cols-2 gap-3">
-          <button type="button" onClick={() => props.onNavigate('challenge-feed')} className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 text-left hover:border-[#D4A94555]"><Play className="h-6 w-6 text-[#D4A945]" /><p className="mt-3 font-black text-white">Media</p><p className="text-sm text-zinc-500">{props.entries.length} entries</p></button>
+          <button type="button" onClick={() => props.onNavigate('challenge-feed')} className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 text-left hover:border-[#D4A94555]"><Play className="h-6 w-6 text-[#D4A945]" /><p className="mt-3 font-black text-white">Media</p><p className="text-sm text-zinc-500">{displayEntries.length} {showingDemoEntries ? 'samples' : 'entries'}</p></button>
           <button type="button" onClick={() => props.onNavigate('challenge-leaderboard')} className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 text-left hover:border-[#D4A94555]"><Users className="h-6 w-6 text-[#D4A945]" /><p className="mt-3 font-black text-white">Leaders</p><p className="text-sm text-zinc-500">Top 3 prizes</p></button>
         </div>
       </div>
