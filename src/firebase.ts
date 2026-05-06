@@ -235,12 +235,18 @@ export const claimDailyPointsIfNeeded = async (uid: string, displayName = '') =>
     if (!data.lastPointGrantDate) updates.lastPointGrantDate = today;
     const currentPoints = typeof data.points === 'number' ? data.points : 0;
     const currentTotalPoints = typeof data.totalPointsEarned === 'number' ? data.totalPointsEarned : 0;
+    const currentMonthlyUsed = data.lastMonthlyRefillDate === month ? Number(data.songsUsedThisMonth || 0) : 0;
+    const freeMonthlyRemaining = Math.max((data.monthlyLimit || plan.monthlyLimit) - currentMonthlyUsed, 0);
     if (plan.id === 'free' && data.lastMonthlyRefillDate !== month) {
       updates.points = Math.max(currentPoints, FREE_STARTER_CREDITS);
       updates.totalPointsEarned = Math.max(currentTotalPoints, FREE_STARTER_CREDITS);
     } else {
       if (typeof data.points !== 'number') updates.points = FREE_STARTER_CREDITS;
       if (typeof data.totalPointsEarned !== 'number') updates.totalPointsEarned = FREE_STARTER_CREDITS;
+    }
+    if (plan.id === 'free' && currentPoints < freeMonthlyRemaining) {
+      updates.points = Math.max(Number(updates.points || 0), freeMonthlyRemaining);
+      updates.totalPointsEarned = Math.max(Number(updates.totalPointsEarned || currentTotalPoints), freeMonthlyRemaining);
     }
     if (data.weeklyLimit !== plan.weeklyLimit) updates.weeklyLimit = plan.weeklyLimit;
     if (data.monthlyLimit !== plan.monthlyLimit) updates.monthlyLimit = plan.monthlyLimit;
