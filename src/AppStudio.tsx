@@ -1,14 +1,27 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, doc, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
-import { AlertCircle, CheckCircle2, Clock3, Code2, CreditCard, Download, History, Loader2, LogOut, Mic2, Music, Pause, Play, Search, Settings, Sparkles, ThumbsDown, ThumbsUp, Upload, User as UserIcon, Wallet } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock3, Code2, CreditCard, Download, History, Loader2, LogOut, Mic2, Music, Pause, Play, Search, Settings, Sparkles, ThumbsDown, ThumbsUp, User as UserIcon, Wallet } from 'lucide-react';
 import DeveloperHub from './components/DeveloperHub';
 import TaurusLandingPage from './components/TaurusLandingPage';
 import TaurusVoiceHub from './components/TaurusVoiceHub';
-import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, consumeGenerationCredit, requestManualPayment, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadPaymentProof, getEffectivePlanConfig, getTimestampMillis, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, GENERATE_TWO_SONGS_COST, UserProfile, UserTier } from './firebase';
+import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, consumeGenerationCredit, approvePayment, rejectPayment, saveSong, uploadSongAudio, getEffectivePlanConfig, getTimestampMillis, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, GENERATE_TWO_SONGS_COST, UserProfile, UserTier } from './firebase';
 
 interface Song { id: string; userId?: string; idea: string; prompt: string; audioUrl: string; storagePath?: string; mimeType?: string; lyrics: string; createdAt: number; }
 type GenerateResponse = { audioBase64: string; mimeType?: string; lyrics?: string; model?: string; };
+type TaurusPayInvoice = {
+  invoiceId: string;
+  status: string;
+  productId: string;
+  credits: number;
+  amount: number;
+  asset: string;
+  network: string;
+  recipient: string;
+  memo: string;
+  reference: string;
+  expiresAt?: string | null;
+};
 type StudioPage = 'landing' | 'create' | 'history' | 'wallet' | 'plans';
 type StudioPanel = 'voice' | 'developers' | 'admin' | null;
 
@@ -32,6 +45,13 @@ const PACKAGES: Array<{ id: UserTier; title: string; credits: string; price: str
   { id: 'prime', title: 'Top Up 300', credits: '300 credits / 30 creates', price: '17.25 USDT' },
   { id: 'premium', title: 'Premium', credits: '150 credits / 15 creates / month', price: '12.25 USDT' },
 ];
+
+const PRODUCT_BY_TIER: Partial<Record<UserTier, string>> = {
+  personal: 'credits_50',
+  pro: 'credits_100',
+  prime: 'credits_300',
+  premium: 'premium_150_month',
+};
 
 const postJson = async <T,>(url: string, body: Record<string, unknown>): Promise<T> => {
   const token = await auth.currentUser?.getIdToken();
@@ -100,7 +120,8 @@ export default function AppStudio() {
   const [error, setError] = useState<string | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
   const [tier, setTier] = useState<UserTier>('premium');
-  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [paymentWallet, setPaymentWallet] = useState('');
+  const [taurusPayInvoice, setTaurusPayInvoice] = useState<TaurusPayInvoice | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [showVoiceHub, setShowVoiceHub] = useState(false);
   const [showDeveloperHub, setShowDeveloperHub] = useState(false);
@@ -248,12 +269,30 @@ export default function AppStudio() {
 
   const submitPayment = async () => {
     if (!user) return setError('Login first.');
+    if (!PRODUCT_BY_TIER[tier]) return setError('Invalid payment plan.');
+    if (!paymentWallet.trim()) return setError('Add your Telegram/TON wallet address first.');
     setSubmitting(true); setError(null);
     try {
-      const proof = proofFile ? await uploadPaymentProof(user.uid, proofFile) : undefined;
-      await requestManualPayment(user.uid, tier, proof);
-      setProgress('Payment sent for admin confirm.');
+      const invoice = await postJson<TaurusPayInvoice>('/api/tauruspay-invoice', {
+        productId: PRODUCT_BY_TIER[tier],
+        wallet: paymentWallet.trim(),
+      });
+      setTaurusPayInvoice(invoice);
+      setProgress('TaurusPay invoice created. Pay exact amount only.');
     } catch (e: any) { setError(e.message || 'Payment failed.'); }
+    finally { setSubmitting(false); }
+  };
+
+  const checkTaurusPayStatus = async () => {
+    if (!taurusPayInvoice) return;
+    setSubmitting(true); setError(null);
+    try {
+      const status = await postJson<{ status: string; applied?: boolean }>('/api/tauruspay-status', {
+        invoiceId: taurusPayInvoice.invoiceId,
+      });
+      setTaurusPayInvoice(current => current ? { ...current, status: status.status } : current);
+      setProgress(status.applied ? 'Payment confirmed. Credits added.' : `Payment status: ${status.status}`);
+    } catch (e: any) { setError(e.message || 'Payment status check failed.'); }
     finally { setSubmitting(false); }
   };
 
@@ -357,7 +396,7 @@ export default function AppStudio() {
               <div className="rounded-3xl border border-white/10 bg-black/30 p-4"><p className="text-xs font-black uppercase tracking-[0.22em] text-zinc-500">Signal Chain</p><div className="mt-3 space-y-2 text-sm text-zinc-400"><p>Prompt &gt; Lyrics &gt; Style</p><p>Voice &gt; Arrangement &gt; Master</p><p>Save &gt; History &gt; Export</p></div></div>
               <button onClick={() => openPanel('voice')} className="w-full rounded-2xl border border-[#D4A94555] bg-transparent px-4 py-3 text-sm font-black text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black"><Mic2 className="mr-2 inline h-4 w-4"/>Open Taurus Voice</button>
             </div>
-          </div>}{activePage === 'wallet' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-2xl font-bold"><Wallet className="mr-2 inline h-5 w-5"/>Wallet</h3><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Credits</p><p className="mt-1 text-2xl font-bold">{credits}</p></div><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Free month</p><p className="mt-1 text-2xl font-bold">{daily}</p></div></div>{expiry>0 && <p className="mt-2 text-xs text-zinc-500">Expires {formatDate(expiry)}</p>}</div>}{activePage === 'plans' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-xl font-bold"><CreditCard className="mr-2 inline h-5 w-5"/>Plans</h3><div className="mt-4 grid gap-3">{PACKAGES.map(p => <button key={p.id} onClick={() => setTier(p.id)} className={`rounded-3xl border p-4 text-left ${tier===p.id?'border-[#D4A945] bg-[#D4A94514]':'border-white/10 bg-black/20'}`}><div className="flex justify-between gap-3"><p className="font-semibold">{p.title}</p><p>{p.price}</p></div><p className="text-sm text-zinc-400">{p.credits}</p></button>)}</div><label className="mt-4 block rounded-3xl border border-dashed border-white/15 p-4 text-sm text-zinc-400"><Upload className="mr-2 inline h-4 w-4"/>Receipt only<input type="file" accept="image/*" onChange={e => setProofFile(e.target.files?.[0] || null)} className="mt-3 block w-full text-xs"/></label><button onClick={submitPayment} disabled={!user || submitting} className="mt-4 w-full rounded-3xl bg-white px-5 py-3 font-semibold text-zinc-950 disabled:opacity-50">{submitting ? <Loader2 className="mr-2 inline h-4 w-4 animate-spin"/> : <CheckCircle2 className="mr-2 inline h-4 w-4"/>}Admin Confirm</button></div>}</aside>
+          </div>}{activePage === 'wallet' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-2xl font-bold"><Wallet className="mr-2 inline h-5 w-5"/>Wallet</h3><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Credits</p><p className="mt-1 text-2xl font-bold">{credits}</p></div><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Free month</p><p className="mt-1 text-2xl font-bold">{daily}</p></div></div>{expiry>0 && <p className="mt-2 text-xs text-zinc-500">Expires {formatDate(expiry)}</p>}</div>}{activePage === 'plans' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-xl font-bold"><CreditCard className="mr-2 inline h-5 w-5"/>TaurusPay</h3><p className="mt-2 text-sm text-zinc-400">USDT on TON. Exact amount only. Underpay fails, overpay goes to manual review.</p><div className="mt-4 grid gap-3">{PACKAGES.map(p => <button key={p.id} onClick={() => { setTier(p.id); setTaurusPayInvoice(null); }} className={`rounded-3xl border p-4 text-left ${tier===p.id?'border-[#D4A945] bg-[#D4A94514]':'border-white/10 bg-black/20'}`}><div className="flex justify-between gap-3"><p className="font-semibold">{p.title}</p><p>{p.price}</p></div><p className="text-sm text-zinc-400">{p.credits}</p></button>)}</div><label className="mt-4 block rounded-3xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-300"><span className="mb-2 block font-semibold">Your Telegram / TON wallet</span><input value={paymentWallet} onChange={e => setPaymentWallet(e.target.value)} placeholder="UQ... wallet address" className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none focus:border-[#D4A94588]"/></label><button onClick={submitPayment} disabled={!user || submitting} className="mt-4 w-full rounded-3xl bg-[#D4A945] px-5 py-3 font-black text-black disabled:opacity-50">{submitting ? <Loader2 className="mr-2 inline h-4 w-4 animate-spin"/> : <CheckCircle2 className="mr-2 inline h-4 w-4"/>}Create TaurusPay Invoice</button>{taurusPayInvoice && <div className="mt-4 rounded-3xl border border-[#D4A94533] bg-[#D4A9450d] p-4 text-sm"><p className="font-black text-[#D4A945]">Invoice {taurusPayInvoice.status}</p><div className="mt-3 space-y-2 text-zinc-300"><p>Network: {taurusPayInvoice.network}</p><p>Asset: {taurusPayInvoice.asset}</p><p>Amount: {taurusPayInvoice.amount} {taurusPayInvoice.asset}</p><p className="break-all">Recipient: {taurusPayInvoice.recipient}</p><p className="break-all">Memo: {taurusPayInvoice.memo || taurusPayInvoice.reference}</p></div><button onClick={checkTaurusPayStatus} disabled={submitting} className="mt-4 w-full rounded-2xl border border-[#D4A94555] px-4 py-3 font-black text-[#D4A945] disabled:opacity-50">Check Payment Status</button></div>}</div>}</aside>
         </div>
       </main>
     </div>

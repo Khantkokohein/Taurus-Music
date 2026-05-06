@@ -306,12 +306,12 @@ service cloud.firestore {
         && (!('apiAccessEnabled' in incoming()) || incoming().apiAccessEnabled == true)
         && incoming().dailyGenerationCount == 0
         && incoming().credits == 0
-        && incoming().points == 10
-        && incoming().totalPointsEarned == 10
+        && incoming().points == 60
+        && incoming().totalPointsEarned == 60
         && incoming().tier == 'free'
-        && incoming().weeklyLimit == 5
+        && incoming().weeklyLimit == 60
         && incoming().songsUsedThisWeek == 0
-        && incoming().monthlyLimit == 10
+        && incoming().monthlyLimit == 60
         && incoming().songsUsedThisMonth == 0
         && (incoming().role == 'user' || (incoming().role == 'admin' && request.auth.token.email == 'koheinkhantko51@gmail.com'));
       allow update: if isAdmin() || isOwnerUsageUpdate(userId) || isOwnerChatBanUpdate(userId);
