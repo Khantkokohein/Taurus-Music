@@ -40,6 +40,34 @@ const prizeRows = [
   { place: '3rd', value: '$200', tone: 'text-amber-600' },
 ];
 
+const prizePolicyRules = [
+  {
+    en: 'Taurus Coin prize rewards are treated as in-app purchase value and can be used across approved Taurus products.',
+    my: 'Taurus Coin ဆုကြေးငွေကို in-app purchase value အဖြစ်သတ်မှတ်ပြီး approved Taurus products အားလုံးတွင် အသုံးပြုနိုင်သည်။',
+  },
+  {
+    en: 'Winners can use the prize balance to buy Taurus product access, credits, API usage, agents, workspace tools, and supported services.',
+    my: 'Winner များသည် ဆုကြေး balance ဖြင့် Taurus product access, credits, API usage, agents, workspace tools နှင့် support services များကို ဝယ်ယူသုံးစွဲနိုင်သည်။',
+  },
+  {
+    en: 'Products or service access received through the prize balance can be resold to other users when it follows Taurus approval and anti-fraud rules.',
+    my: 'ဆုကြေးငွေဖြင့်ရရှိသော product သို့မဟုတ် service access များကို Taurus approval နှင့် anti-fraud rules ကိုလိုက်နာပါက user များထံ ပြန်လည်ရောင်းချနိုင်သည်။',
+  },
+];
+
+const prizeProducts = [
+  'Taurus AI',
+  'Taurus Music',
+  'Taurus Shield',
+  'Outline Client Key Store',
+  'Your Agent',
+  'Your Voice Agent',
+  'Taurus AI Deep Calling System',
+  'Taurus Studio API',
+  'Taurus Wallet',
+  'Taurus Workspace',
+];
+
 const timeline = [
   { icon: CalendarDays, label: 'Registration', value: 'May 7, 2026 - May 15, 2026' },
   { icon: Music, label: 'Creation', value: 'May 16, 2026 - May 19, 2026' },
@@ -315,6 +343,21 @@ export default function ChallengeHub(props: ChallengeHubProps) {
             <Trophy className="h-10 w-10 text-[#D4A945]" />
             <h3 className="mt-5 text-2xl font-black text-white">Taurus Coin $1000</h3>
             <div className="mt-5 grid gap-3">{prizeRows.map(row => <div key={row.place} className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/35 p-4"><span className="font-black text-white">{row.place} Place</span><span className={`text-2xl font-black ${row.tone}`}>{row.value}</span></div>)}</div>
+            <div className="mt-6 rounded-2xl border border-white/10 bg-black/30 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <h4 className="text-sm font-black uppercase tracking-[0.22em] text-[#D4A945]">Prize Rule</h4>
+                <span className="rounded-full bg-[#D4A94518] px-3 py-1 text-[10px] font-black text-[#D4A945]">In-app purchase</span>
+              </div>
+              <div className="mt-4 grid gap-3">
+                {prizePolicyRules.map((rule, index) => <p key={rule.en} className="flex gap-3 text-xs leading-6 text-zinc-300"><ShieldCheck className="mt-1 h-4 w-4 shrink-0 text-[#D4A945]" /><span><strong className="mr-1 text-[#D4A945]">{index + 1}.</strong>{rule[rulesLanguage]}</span></p>)}
+              </div>
+            </div>
+            <div className="mt-4">
+              <p className="mb-3 text-[10px] font-black uppercase tracking-[0.22em] text-zinc-500">Included Products</p>
+              <div className="grid grid-cols-2 gap-2">
+                {prizeProducts.map((product, index) => <div key={product} className={`rounded-xl border px-3 py-2 text-xs font-black ${index % 2 === 0 ? 'border-blue-500/25 bg-blue-500/10 text-blue-300' : 'border-[#D4A94533] bg-[#D4A94512] text-[#D4A945]'}`}>{product}</div>)}
+              </div>
+            </div>
           </div>
         </div>
       </div>
