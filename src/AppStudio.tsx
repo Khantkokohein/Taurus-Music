@@ -233,6 +233,7 @@ export default function AppStudio() {
   const [editFormat, setEditFormat] = useState<'mp3' | 'wav'>('mp3');
   const [editingOperation, setEditingOperation] = useState<AudioEditOperation | ''>('');
   const audioRef = useRef(new Audio());
+  const challengePlayRequestRef = useRef(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
   const tonAddress = useTonAddress();
@@ -399,11 +400,11 @@ export default function AppStudio() {
     return () => { a.removeEventListener('ended', done); a.pause(); };
   }, []);
 
-  const playSong = async (song: Song) => {
+  const playSong = async (song: Song, options: { loop?: boolean } = {}) => {
     if (!song.audioUrl) return setError('Audio missing.');
     const a = audioRef.current;
     if (currentSong?.id === song.id && isPlaying) { a.pause(); setIsPlaying(false); return; }
-    setCurrentSong(song); a.src = song.audioUrl; await a.play(); setIsPlaying(true);
+    setCurrentSong(song); a.loop = options.loop === true; a.src = song.audioUrl; await a.play(); setIsPlaying(true);
   };
 
   const downloadSong = (song: Song) => { const link = document.createElement('a'); link.href = song.audioUrl; link.download = `${song.idea || 'taurus-song'}.mp3`.replace(/[^a-z0-9._-]+/gi, '-'); link.click(); };
@@ -529,8 +530,10 @@ export default function AppStudio() {
   };
 
   const playChallengeEntry = async (entry: ChallengeEntry) => {
-    setPlayingChallengeEntryId(entry.id);
-    await playSong({
+    const requestId = challengePlayRequestRef.current + 1;
+    challengePlayRequestRef.current = requestId;
+    const sameEntryPlaying = playingChallengeEntryId === entry.id && isPlaying;
+    const song = {
       id: entry.sourceSongId || entry.id,
       userId: entry.userId,
       idea: entry.title,
@@ -539,7 +542,22 @@ export default function AppStudio() {
       mimeType: entry.mimeType,
       lyrics: entry.lyrics,
       createdAt: typeof entry.publishedAt === 'number' ? entry.publishedAt : getTimestampMillis(entry.publishedAt) || Date.now(),
-    });
+    };
+    if (sameEntryPlaying) {
+      await playSong(song, { loop: true });
+      setPlayingChallengeEntryId('');
+      return;
+    }
+    setPlayingChallengeEntryId(entry.id);
+    try {
+      await playSong(song, { loop: true });
+      if (challengePlayRequestRef.current === requestId) setError(null);
+    } catch (e: any) {
+      if (challengePlayRequestRef.current !== requestId) return;
+      setPlayingChallengeEntryId('');
+      const message = e.message || '';
+      if (!/interrupted|notallowed|play\(\)/i.test(message)) setError(message || 'Audio playback failed.');
+    }
   };
 
   const toggleChallengeAction = async (entry: ChallengeEntry, type: 'like' | 'save') => {
@@ -680,6 +698,7 @@ export default function AppStudio() {
   const editorButton = (operation: AudioEditOperation, label: string) => <button onClick={() => runAudioEdit(operation)} disabled={!currentSong || !!editingOperation} className="rounded-2xl border border-[#D4A94555] bg-transparent px-3 py-3 text-sm font-black text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black disabled:cursor-not-allowed disabled:opacity-45">{editingOperation === operation ? <Loader2 className="mr-2 inline h-4 w-4 animate-spin"/> : null}{label}</button>;
   const editorPanel = <div className="rounded-[2rem] border border-white/10 bg-[#11100d]/95 p-6 shadow-2xl shadow-black/30"><h3 className="text-xl font-black"><Settings className="mr-2 inline h-5 w-5 text-[#D4A945]"/>Studio Editor</h3><p className="mt-2 text-sm leading-6 text-zinc-400">{currentSong ? currentSong.idea : 'Play a song from History first, then edit it here.'}</p><div className="mt-5 grid grid-cols-2 gap-3">{editorNumberInput('Start sec', editStart, setEditStart)}{editorNumberInput('End sec', editEnd, setEditEnd)}{editorNumberInput('Split at', splitAt, setSplitAt)}<label className="block"><span className="mb-1 block text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Format</span><select value={editFormat} onChange={e => setEditFormat(e.target.value as 'mp3' | 'wav')} className="w-full rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-sm outline-none focus:border-[#D4A94588]"><option value="mp3">MP3</option><option value="wav">WAV</option></select></label>{editorNumberInput('Fade in', fadeIn, setFadeIn)}{editorNumberInput('Fade out', fadeOut, setFadeOut)}</div><div className="mt-5 grid grid-cols-2 gap-2">{editorButton('crop', 'Crop')}{editorButton('selected-range-export', 'Range Export')}{editorButton('fade', 'Fade In/Out')}{editorButton('split', 'Split')}{editorButton('export', `Export ${editFormat.toUpperCase()}`)}</div><p className="mt-4 text-xs leading-5 text-zinc-500">FFmpeg runs on Google Cloud Run. Results are saved back into History as new files.</p></div>;
   const chips = (items: string[], value: string, set: (v: string) => void) => <div className="flex flex-wrap gap-2">{items.map(i => <button key={i} onClick={() => set(i)} className={`rounded-2xl border px-3 py-2 text-sm font-semibold transition-colors ${value === i ? 'border-[#D4A945] bg-[#D4A945] text-black' : 'border-white/10 bg-white/[0.04] text-zinc-400 hover:border-[#D4A94555] hover:text-white'}`}>{i}</button>)}</div>;
+  const immersiveChallengeFeed = activePage === 'challenge-feed';
 
   if (activePage === 'landing') {
     return <div className="min-h-screen bg-[#080812] text-zinc-100">
@@ -699,18 +718,18 @@ export default function AppStudio() {
     {showVoiceHub && <TaurusVoiceHub onClose={closePanel} onOpenStudio={closePanel} onSelectVoice={(voiceName) => { setVoice(voiceName); closePanel(); }} />}
     {showDeveloperHub && <DeveloperHub currentUser={user} profile={profile} onClose={closePanel} />}
     <div className="fixed inset-0 overflow-hidden pointer-events-none"><div className="absolute -left-24 top-16 h-72 w-72 rounded-full bg-[#D4A945]/10 blur-3xl"/><div className="absolute right-10 top-28 h-96 w-96 rounded-full bg-white/[0.04] blur-3xl"/></div>
-    <div className="relative flex min-h-screen">
-      <aside className="hidden w-72 border-r border-white/10 bg-[#0b0a08]/95 p-6 lg:block">
+    <div className={`relative flex min-h-screen ${immersiveChallengeFeed ? 'justify-center' : ''}`}>
+      <aside className={`${immersiveChallengeFeed ? 'hidden' : 'hidden w-72 border-r border-white/10 bg-[#0b0a08]/95 p-6 lg:block'}`}>
         <div className="flex items-center gap-3"><div className="grid h-12 w-12 place-items-center rounded-2xl bg-[#D4A94514] text-[#D4A945]"><Music/></div><div><h1 className="text-xl font-black tracking-wide">Taurus</h1><p className="text-xs text-zinc-500">Studio Music OS</p></div></div>
         <nav className="mt-10 space-y-2 text-sm">{STUDIO_NAV_PAGES.map(x => { const active = activePage === x || (x === 'challenge' && isChallengePage(activePage)); return <button key={x} onClick={() => navigatePage(x)} className={`w-full rounded-2xl px-4 py-3 text-left font-bold capitalize transition-colors ${active?'bg-[#D4A945] text-black':'bg-white/[0.04] text-zinc-300 hover:bg-white/[0.07] hover:text-white'}`}>{studioPageLabel(x)}</button>; })}<button onClick={() => openPanel('voice')} className="flex w-full items-center gap-2 rounded-2xl border border-[#D4A94522] bg-[#D4A9450d] px-4 py-3 text-left font-bold text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black"><Mic2 className="h-4 w-4"/>Taurus Voice</button><button onClick={() => openPanel('developers')} className="flex w-full items-center gap-2 rounded-2xl bg-white/[0.04] px-4 py-3 text-left font-bold transition-colors hover:bg-white/[0.07]"><Code2 className="h-4 w-4"/>Developers</button>{admin && <button onClick={() => openPanel('admin')} className="w-full rounded-2xl border border-[#D4A94522] bg-[#D4A94514] px-4 py-3 text-left font-bold text-[#D4A945]">Admin</button>}</nav>
         <div className="mt-10 rounded-3xl border border-white/10 bg-black/30 p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-[#D4A945]">Plan</p><p className="mt-2 font-semibold">{owner ? 'Owner Unlimited' : plan.name}</p>{taurusId && <p className="mt-1 font-mono text-xs text-zinc-500">{taurusId}</p>}<p className="text-sm text-zinc-400">Credits: {credits}</p><p className="text-sm text-zinc-400">Free month: {daily}</p></div>
       </aside>
-      <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">
-        <header className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div className="relative max-w-xl flex-1"><Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search songs..." className="w-full rounded-2xl border border-white/10 bg-black/30 py-3 pl-11 pr-4 outline-none transition-colors focus:border-[#D4A94588]"/></div><div className="flex gap-3"><div className="rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-3 text-sm font-bold text-[#D4A945]"><Wallet className="mr-2 inline h-4 w-4"/>{credits}</div>{user ? <button onClick={logout} title={user.email || 'Gmail connected'} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold transition-colors hover:text-white"><LogOut className="mr-2 inline h-4 w-4"/>Gmail Connected</button> : <button onClick={handleGoogleLogin} className="rounded-2xl bg-[#D4A945] px-4 py-3 text-sm font-black text-black transition-colors hover:bg-[#e6bd5b]"><UserIcon className="mr-2 inline h-4 w-4"/>Gmail</button>}</div></header>
-        <div className="mb-6 flex gap-2 overflow-x-auto pb-1 lg:hidden">{STUDIO_NAV_PAGES.map(x => { const active = activePage === x || (x === 'challenge' && isChallengePage(activePage)); return <button key={x} onClick={() => navigatePage(x)} className={`shrink-0 rounded-2xl px-4 py-2 text-xs font-bold capitalize ${active?'bg-[#D4A945] text-black':'border border-white/10 bg-white/[0.04] text-zinc-300'}`}>{studioPageLabel(x)}</button>; })}<button onClick={() => openPanel('voice')} className="shrink-0 rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-2 text-xs font-bold text-[#D4A945]">Voice</button><button onClick={() => openPanel('developers')} className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-bold">API</button></div>
+      <main className={`min-w-0 ${immersiveChallengeFeed ? 'h-[100dvh] flex-1 p-0 lg:max-w-[540px]' : 'flex-1 p-4 sm:p-6 lg:p-8'}`}>
+        <header className={`${immersiveChallengeFeed ? 'hidden' : 'mb-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'}`}><div className="relative max-w-xl flex-1"><Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search songs..." className="w-full rounded-2xl border border-white/10 bg-black/30 py-3 pl-11 pr-4 outline-none transition-colors focus:border-[#D4A94588]"/></div><div className="flex gap-3"><div className="rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-3 text-sm font-bold text-[#D4A945]"><Wallet className="mr-2 inline h-4 w-4"/>{credits}</div>{user ? <button onClick={logout} title={user.email || 'Gmail connected'} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold transition-colors hover:text-white"><LogOut className="mr-2 inline h-4 w-4"/>Gmail Connected</button> : <button onClick={handleGoogleLogin} className="rounded-2xl bg-[#D4A945] px-4 py-3 text-sm font-black text-black transition-colors hover:bg-[#e6bd5b]"><UserIcon className="mr-2 inline h-4 w-4"/>Gmail</button>}</div></header>
+        <div className={`${immersiveChallengeFeed ? 'hidden' : 'mb-6 flex gap-2 overflow-x-auto pb-1 lg:hidden'}`}>{STUDIO_NAV_PAGES.map(x => { const active = activePage === x || (x === 'challenge' && isChallengePage(activePage)); return <button key={x} onClick={() => navigatePage(x)} className={`shrink-0 rounded-2xl px-4 py-2 text-xs font-bold capitalize ${active?'bg-[#D4A945] text-black':'border border-white/10 bg-white/[0.04] text-zinc-300'}`}>{studioPageLabel(x)}</button>; })}<button onClick={() => openPanel('voice')} className="shrink-0 rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-2 text-xs font-bold text-[#D4A945]">Voice</button><button onClick={() => openPanel('developers')} className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-bold">API</button></div>
         {error && <div className="mb-5 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200"><AlertCircle className="mr-2 inline h-4 w-4"/>{error}</div>}
-        <div className={`grid min-w-0 gap-6 ${isChallengePage(activePage) ? 'xl:grid-cols-1' : 'xl:grid-cols-[1fr_360px]'}`}>
-          <section className={`min-w-0 space-y-6 ${isChallengePage(activePage) ? 'xl:col-span-2' : ''}`}>{activePage === 'create' && <div className="min-w-0 overflow-hidden rounded-[2rem] border border-white/10 bg-[#11100d]/95 shadow-2xl shadow-black/40">
+        <div className={`${immersiveChallengeFeed ? 'block h-[100dvh] min-w-0' : `grid min-w-0 gap-6 ${isChallengePage(activePage) ? 'xl:grid-cols-1' : 'xl:grid-cols-[1fr_360px]'}`}`}>
+          <section className={`min-w-0 ${immersiveChallengeFeed ? 'h-[100dvh] space-y-0' : `space-y-6 ${isChallengePage(activePage) ? 'xl:col-span-2' : ''}`}`}>{activePage === 'create' && <div className="min-w-0 overflow-hidden rounded-[2rem] border border-white/10 bg-[#11100d]/95 shadow-2xl shadow-black/40">
             <div className="relative p-6 lg:p-8">
               <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_82%_10%,rgba(212,169,69,.18),transparent_28%)]" />
               <div className="relative grid gap-8 lg:grid-cols-[1fr_260px]">

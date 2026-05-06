@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Bookmark, CalendarDays, ChevronRight, Crown, Gift, Heart, MessageCircle, Music, Play, ShieldCheck, Sparkles, Trophy, Users } from 'lucide-react';
 import { ChallengeEntry, CHALLENGE_GENERATE_ATTEMPTS } from '../firebase';
 
@@ -137,11 +137,11 @@ function BackButton({ onBack }: { onBack: () => void }) {
   return <button type="button" onClick={onBack} className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-black text-zinc-200 hover:border-[#D4A94555] hover:text-[#D4A945]"><ArrowLeft className="h-4 w-4" />Back</button>;
 }
 
-function ChallengeShell({ children, onBack }: { children: React.ReactNode; onBack: () => void }) {
-  return <div className="relative mx-auto max-w-7xl overflow-hidden rounded-[1.5rem] border border-[#D4A94522] bg-[#11100d]/95 p-4 shadow-2xl shadow-black/40 sm:p-6 lg:p-7">
-    <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(212,169,69,.10),transparent_34%,rgba(45,212,191,.06)_64%,rgba(168,85,247,.08))]" />
-    <div className="relative">
-    <div className="mb-6 flex items-center justify-between gap-3"><BackButton onBack={onBack} /><span className="rounded-full border border-[#D4A94533] bg-[#D4A94512] px-4 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#D4A945]">Studio Challenge</span></div>
+function ChallengeShell({ children, onBack, feedMode = false }: { children: React.ReactNode; onBack: () => void; feedMode?: boolean }) {
+  return <div className={feedMode ? 'relative mx-auto h-[100dvh] max-w-[540px] overflow-hidden bg-black shadow-2xl shadow-black/70 sm:border-x sm:border-[#D4A94522]' : 'relative mx-auto max-w-7xl overflow-hidden rounded-[1.5rem] border border-[#D4A94522] bg-[#11100d]/95 p-4 shadow-2xl shadow-black/40 sm:p-6 lg:p-7'}>
+    <div className={`pointer-events-none absolute inset-0 ${feedMode ? 'bg-[linear-gradient(180deg,rgba(212,169,69,.08),transparent_28%,rgba(0,0,0,.45))]' : 'bg-[linear-gradient(135deg,rgba(212,169,69,.10),transparent_34%,rgba(45,212,191,.06)_64%,rgba(168,85,247,.08))]'}`} />
+    <div className={feedMode ? 'relative h-full' : 'relative'}>
+    <div className={feedMode ? 'absolute left-3 top-3 z-50 flex items-center gap-3' : 'mb-6 flex items-center justify-between gap-3'}><BackButton onBack={onBack} />{!feedMode && <span className="rounded-full border border-[#D4A94533] bg-[#D4A94512] px-4 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#D4A945]">Studio Challenge</span>}</div>
     {children}
     </div>
   </div>;
@@ -206,6 +206,7 @@ function EntryCard({
   onToggleSave,
   onCommentChange,
   onSubmitComment,
+  autoPlayOnVisible,
 }: {
   entry: ChallengeEntry;
   index: number;
@@ -217,12 +218,77 @@ function EntryCard({
   onToggleSave: () => void;
   onCommentChange: (value: string) => void;
   onSubmitComment: () => void;
+  autoPlayOnVisible?: boolean;
 }) {
   const liked = reactionState?.liked === true;
   const saved = reactionState?.saved === true;
   const visual = visualForEntry(entry, index);
-  return <section className="snap-start rounded-[1.35rem] border border-[#D4A94522] bg-[radial-gradient(circle_at_20%_10%,rgba(212,169,69,.16),transparent_28%),linear-gradient(145deg,#15120b,#060606)] p-4 shadow-2xl shadow-black/40">
-    <div className="grid min-h-[440px] gap-5 lg:grid-cols-[300px_1fr_74px]">
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const cardRef = useRef<HTMLElement | null>(null);
+  const autoAttemptedRef = useRef(false);
+
+  useEffect(() => {
+    if (!autoPlayOnVisible || !cardRef.current || typeof IntersectionObserver === 'undefined') return undefined;
+    const observer = new IntersectionObserver(([item]) => {
+      const visible = item.isIntersecting && item.intersectionRatio >= 0.72;
+      if (!visible) {
+        autoAttemptedRef.current = false;
+        return;
+      }
+      if (!active && !autoAttemptedRef.current) {
+        autoAttemptedRef.current = true;
+        Promise.resolve(onPlay()).catch(() => {
+          autoAttemptedRef.current = false;
+        });
+      }
+    }, { threshold: [0, 0.72, 1] });
+    observer.observe(cardRef.current);
+    return () => observer.disconnect();
+  }, [active, autoPlayOnVisible, onPlay]);
+
+  const commentInput = <div className="flex gap-2">
+    <input value={commentText} onChange={event => onCommentChange(event.target.value)} placeholder="Add a comment..." className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-black/50 px-4 py-3 text-sm outline-none focus:border-[#D4A94588]" />
+    <button type="button" onClick={onSubmitComment} className="rounded-2xl bg-[#D4A945] px-4 py-3 text-sm font-black text-black">Post</button>
+  </div>;
+
+  return <section ref={cardRef} className="h-[100dvh] snap-start">
+    <div className="relative h-full min-h-[560px] overflow-hidden bg-black shadow-2xl shadow-black/40 sm:rounded-[1.5rem] sm:border sm:border-[#D4A94522]">
+      <img src={visual.image} alt={entry.authorName || visual.name} className="absolute inset-0 h-full w-full object-cover opacity-90" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,.32),rgba(0,0,0,.08)_34%,rgba(0,0,0,.9)),linear-gradient(90deg,rgba(0,0,0,.78),transparent_48%,rgba(0,0,0,.58))]" />
+      <button type="button" onClick={onPlay} aria-label={`${active ? 'Pause' : 'Play'} ${entry.title}`} className="absolute left-1/2 top-1/2 z-10 h-44 w-44 -translate-x-1/2 -translate-y-1/2 rounded-full bg-transparent" />
+      <div className="absolute left-4 right-4 top-20 z-10 flex items-center justify-between gap-3">
+        <span className="rounded-full border border-[#D4A94566] bg-black/45 px-4 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#D4A945] backdrop-blur">{String(index + 1).padStart(2, '0')} / Challenge</span>
+        <span className="rounded-full bg-black/55 px-3 py-2 text-xs font-black text-white backdrop-blur">{formatCount(scoreOf(entry))} pts</span>
+      </div>
+      <div className="absolute bottom-28 right-3 z-20 flex w-16 flex-col gap-3">
+        <button type="button" aria-label={`Like ${entry.title}`} onClick={onToggleLike} className={`grid h-16 place-items-center rounded-2xl border text-center backdrop-blur ${liked ? 'border-[#D4A945] bg-[#D4A945] text-black' : 'border-white/15 bg-black/45 text-white'}`}><Heart className={`h-6 w-6 ${liked ? 'fill-current' : ''}`} /><span className="text-[11px] font-black">{formatCount(entry.likeCount)}</span></button>
+        <button type="button" aria-label={`Open comments for ${entry.title}`} onClick={() => setCommentsOpen(true)} className="grid h-16 place-items-center rounded-2xl border border-white/15 bg-black/45 text-center text-white backdrop-blur"><MessageCircle className="h-6 w-6" /><span className="text-[11px] font-black">{formatCount(entry.commentCount)}</span></button>
+        <button type="button" aria-label={`Save ${entry.title}`} onClick={onToggleSave} className={`grid h-16 place-items-center rounded-2xl border text-center backdrop-blur ${saved ? 'border-[#D4A945] bg-[#D4A945] text-black' : 'border-white/15 bg-black/45 text-white'}`}><Bookmark className={`h-6 w-6 ${saved ? 'fill-current' : ''}`} /><span className="text-[11px] font-black">{formatCount(entry.saveCount)}</span></button>
+      </div>
+      <div className="absolute bottom-4 left-4 right-24 z-10">
+        <p className="mb-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#D4A945]">Original Entry</p>
+        <h2 className="max-h-24 overflow-hidden text-3xl font-black leading-tight text-white">{entry.title}</h2>
+        <p className="mt-2 truncate text-sm font-black text-[#D4A945]">@{entry.authorName}</p>
+        <p className="mt-3 max-h-16 overflow-hidden text-sm leading-6 text-zinc-200/85">{entry.prompt || 'Original Taurus Studio challenge entry.'}</p>
+        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/15"><div className={`h-full rounded-full bg-[#D4A945] ${active ? 'w-2/3' : 'w-1/4'}`} /></div>
+      </div>
+      {commentsOpen && <div className="absolute inset-0 z-30 flex items-end bg-black/45">
+        <div className="w-full rounded-t-[1.75rem] border-t border-white/10 bg-[#0b0b0b]/95 p-4 shadow-2xl shadow-black backdrop-blur-xl">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-lg font-black text-white">Comments</p>
+              <p className="text-xs text-zinc-500">{formatCount(entry.commentCount)} comments</p>
+            </div>
+            <button type="button" onClick={() => setCommentsOpen(false)} aria-label="Close comments" className="grid h-10 w-10 place-items-center rounded-full border border-white/10 bg-white/[0.04] text-xl text-white">×</button>
+          </div>
+          <div className="mb-4 rounded-2xl bg-white/[0.04] p-4 text-sm text-zinc-400">Comments will appear here after users post.</div>
+          {commentInput}
+        </div>
+      </div>}
+    </div>
+
+    <div className="hidden rounded-[1.35rem] border border-[#D4A94522] bg-[radial-gradient(circle_at_20%_10%,rgba(212,169,69,.16),transparent_28%),linear-gradient(145deg,#15120b,#060606)] p-4 shadow-2xl shadow-black/40">
+      <div className="grid min-h-[440px] gap-5 lg:grid-cols-[300px_1fr_74px]">
       <div className={`relative min-h-72 overflow-hidden rounded-[1.1rem] bg-gradient-to-br ${visual.glow} p-[1px]`}>
         <img src={visual.image} alt={entry.authorName || visual.name} className="absolute inset-0 h-full w-full rounded-[1.1rem] object-cover opacity-85" />
         <div className="absolute inset-0 rounded-[1.1rem] bg-gradient-to-t from-black/85 via-black/18 to-black/20" />
@@ -249,16 +315,24 @@ function EntryCard({
               <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10"><div className={`h-full rounded-full bg-[#D4A945] ${active ? 'w-2/3' : 'w-1/4'}`} /></div>
             </div>
           </div>
-          <div className="mt-4 flex gap-2">
-            <input value={commentText} onChange={event => onCommentChange(event.target.value)} placeholder="Add a comment..." className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-black/50 px-4 py-3 text-sm outline-none focus:border-[#D4A94588]" />
-            <button type="button" onClick={onSubmitComment} className="rounded-2xl bg-[#D4A945] px-4 py-3 text-sm font-black text-black">Post</button>
-          </div>
+          <div className="mt-4">{commentInput}</div>
         </div>
       </div>
       <div className="flex flex-row justify-center gap-3 lg:flex-col">
-        <button type="button" onClick={onToggleLike} className={`grid min-h-20 flex-1 place-items-center rounded-3xl border px-2 py-3 text-center lg:flex-none ${liked ? 'border-[#D4A945] bg-[#D4A945] text-black' : 'border-white/10 bg-black/30 text-white'}`}><Heart className={`h-6 w-6 ${liked ? 'fill-current' : ''}`} /><span className="text-xs font-black">{formatCount(entry.likeCount)}</span></button>
-        <div className="grid min-h-20 flex-1 place-items-center rounded-3xl border border-white/10 bg-black/30 px-2 py-3 text-center text-white lg:flex-none"><MessageCircle className="h-6 w-6" /><span className="text-xs font-black">{formatCount(entry.commentCount)}</span></div>
-        <button type="button" onClick={onToggleSave} className={`grid min-h-20 flex-1 place-items-center rounded-3xl border px-2 py-3 text-center lg:flex-none ${saved ? 'border-[#D4A945] bg-[#D4A945] text-black' : 'border-white/10 bg-black/30 text-white'}`}><Bookmark className={`h-6 w-6 ${saved ? 'fill-current' : ''}`} /><span className="text-xs font-black">{formatCount(entry.saveCount)}</span></button>
+        <button type="button" aria-label={`Like ${entry.title}`} onClick={onToggleLike} className={`grid min-h-20 flex-1 place-items-center rounded-3xl border px-2 py-3 text-center lg:flex-none ${liked ? 'border-[#D4A945] bg-[#D4A945] text-black' : 'border-white/10 bg-black/30 text-white'}`}><Heart className={`h-6 w-6 ${liked ? 'fill-current' : ''}`} /><span className="text-xs font-black">{formatCount(entry.likeCount)}</span></button>
+        <button type="button" aria-label={`Open comments for ${entry.title}`} onClick={() => setCommentsOpen(true)} className="grid min-h-20 flex-1 place-items-center rounded-3xl border border-white/10 bg-black/30 px-2 py-3 text-center text-white lg:flex-none"><MessageCircle className="h-6 w-6" /><span className="text-xs font-black">{formatCount(entry.commentCount)}</span></button>
+        <button type="button" aria-label={`Save ${entry.title}`} onClick={onToggleSave} className={`grid min-h-20 flex-1 place-items-center rounded-3xl border px-2 py-3 text-center lg:flex-none ${saved ? 'border-[#D4A945] bg-[#D4A945] text-black' : 'border-white/10 bg-black/30 text-white'}`}><Bookmark className={`h-6 w-6 ${saved ? 'fill-current' : ''}`} /><span className="text-xs font-black">{formatCount(entry.saveCount)}</span></button>
+      </div>
+      {commentsOpen && <div className="fixed inset-0 z-[160] flex items-end justify-center bg-black/60 p-4">
+        <div className="w-full max-w-lg rounded-t-[1.75rem] border border-white/10 bg-[#0b0b0b] p-5 shadow-2xl shadow-black">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div><p className="text-xl font-black text-white">Comments</p><p className="text-xs text-zinc-500">{entry.title}</p></div>
+            <button type="button" onClick={() => setCommentsOpen(false)} aria-label="Close comments" className="grid h-10 w-10 place-items-center rounded-full border border-white/10 bg-white/[0.04] text-xl text-white">×</button>
+          </div>
+          <div className="mb-4 rounded-2xl bg-white/[0.04] p-4 text-sm text-zinc-400">Comments will appear here after users post.</div>
+          {commentInput}
+        </div>
+      </div>}
       </div>
     </div>
   </section>;
@@ -269,6 +343,7 @@ export default function ChallengeHub(props: ChallengeHubProps) {
   const [demoReactionState, setDemoReactionState] = useState<ReactionState>({});
   const [demoCommentText, setDemoCommentText] = useState<Record<string, string>>({});
   const [demoStats, setDemoStats] = useState<Record<string, { likeDelta: number; saveDelta: number; commentDelta: number }>>({});
+  const [feedAutoReady, setFeedAutoReady] = useState(true);
   const showingDemoEntries = props.entries.length === 0;
   const displayEntries = showingDemoEntries ? sampleChallengeEntries.map(entry => {
     const stats = demoStats[entry.id] || { likeDelta: 0, saveDelta: 0, commentDelta: 0 };
@@ -365,13 +440,10 @@ export default function ChallengeHub(props: ChallengeHubProps) {
   }
 
   if (props.page === 'challenge-feed') {
-    return <ChallengeShell onBack={props.onBack}>
-      <div className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-        <div><h2 className="text-4xl font-black text-white md:text-5xl">Challenge Media</h2><p className="mt-3 text-sm text-zinc-400">{showingDemoEntries ? 'Demo feed: 10 sample audio entries for scroll and playback testing.' : 'Swipe-style public listening feed for original entries.'}</p></div>
-        <button type="button" onClick={() => props.onNavigate('challenge-leaderboard')} className="rounded-2xl border border-[#D4A94555] px-5 py-3 text-sm font-black text-[#D4A945] hover:bg-[#D4A945] hover:text-black">Leaderboard</button>
-      </div>
-      <div className="max-h-[72vh] space-y-6 overflow-y-auto snap-y snap-mandatory pr-1">
-        {sortedEntries.length === 0 ? <EmptyFeed /> : sortedEntries.map((entry, index) => <React.Fragment key={entry.id}><EntryCard entry={entry} index={index} active={props.playingEntryId === entry.id} commentText={commentTextByEntry[entry.id] || ''} reactionState={reactionState[entry.id]} onPlay={() => props.onPlayEntry(entry)} onToggleLike={() => isDemoEntry(entry) ? toggleDemoAction(entry, 'like') : props.onToggleLike(entry)} onToggleSave={() => isDemoEntry(entry) ? toggleDemoAction(entry, 'save') : props.onToggleSave(entry)} onCommentChange={value => isDemoEntry(entry) ? setDemoCommentText(current => ({ ...current, [entry.id]: value.slice(0, 280) })) : props.onCommentChange(entry.id, value)} onSubmitComment={() => isDemoEntry(entry) ? submitDemoComment(entry) : props.onSubmitComment(entry)} /></React.Fragment>)}
+    return <ChallengeShell onBack={props.onBack} feedMode>
+      <button type="button" onClick={() => props.onNavigate('challenge-leaderboard')} className="absolute right-3 top-3 z-50 rounded-2xl border border-[#D4A94555] bg-black/45 px-4 py-3 text-xs font-black text-[#D4A945] backdrop-blur hover:bg-[#D4A945] hover:text-black">Leaderboard</button>
+      <div onPointerDownCapture={() => setFeedAutoReady(true)} onWheelCapture={() => setFeedAutoReady(true)} onTouchStartCapture={() => setFeedAutoReady(true)} className="h-[100dvh] overflow-y-auto overscroll-contain snap-y snap-mandatory bg-black">
+        {sortedEntries.length === 0 ? <EmptyFeed /> : sortedEntries.map((entry, index) => <React.Fragment key={entry.id}><EntryCard entry={entry} index={index} active={props.playingEntryId === entry.id} commentText={commentTextByEntry[entry.id] || ''} reactionState={reactionState[entry.id]} autoPlayOnVisible={feedAutoReady} onPlay={() => props.onPlayEntry(entry)} onToggleLike={() => isDemoEntry(entry) ? toggleDemoAction(entry, 'like') : props.onToggleLike(entry)} onToggleSave={() => isDemoEntry(entry) ? toggleDemoAction(entry, 'save') : props.onToggleSave(entry)} onCommentChange={value => isDemoEntry(entry) ? setDemoCommentText(current => ({ ...current, [entry.id]: value.slice(0, 280) })) : props.onCommentChange(entry.id, value)} onSubmitComment={() => isDemoEntry(entry) ? submitDemoComment(entry) : props.onSubmitComment(entry)} /></React.Fragment>)}
       </div>
     </ChallengeShell>;
   }
