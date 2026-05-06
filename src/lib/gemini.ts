@@ -1,7 +1,9 @@
 import { GoogleGenAI } from '@google/genai';
 
 const TEXT_MODEL = 'gemini-3-flash-preview';
-const LYRIA_MODEL = 'lyria-3-pro-preview';
+const FREE_LYRIA_MODEL = 'lyria-3-clip-preview';
+const PRO_LYRIA_MODEL = 'lyria-3-pro-preview';
+const ALLOWED_LYRIA_MODELS = new Set([FREE_LYRIA_MODEL, PRO_LYRIA_MODEL]);
 const VOICE_MODEL = process.env.GEMINI_VOICE_MODEL || 'gemini-2.5-flash';
 
 const getGeminiApiKey = () => process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
@@ -70,6 +72,7 @@ export const generateSongAudio = async ({
   masteringProfile,
   negativeProductionRules,
   sectionMap,
+  lyriaModel,
 }: {
   prompt: string;
   genreDescription: string;
@@ -90,13 +93,21 @@ export const generateSongAudio = async ({
   masteringProfile: string;
   negativeProductionRules: string;
   sectionMap: string;
+  lyriaModel?: string;
 }) => {
   const ai = getClient();
-  const durationInstruction = durationMode === 'preview'
+  const model = ALLOWED_LYRIA_MODELS.has(lyriaModel || '') ? lyriaModel as string : PRO_LYRIA_MODEL;
+  const isClipModel = model === FREE_LYRIA_MODEL;
+  const durationInstruction = isClipModel
+    ? 'Target duration must be 30 seconds. This is a free trial Lyria 3 Clip preview, not a full song.'
+    : durationMode === 'preview'
     ? 'Target duration must be about 60 seconds. This is a premium preview, so make it feel exciting but end cleanly at the preview point.'
     : 'Target duration must be at least 2 minutes 50 seconds and no longer than 3 minutes 30 seconds. Do not make a short sample.';
+  const shapeInstruction = isClipModel
+    ? `Create a polished 30-second ${genreDescription} preview clip as an MP3 with high-end studio music platform quality.`
+    : `Create a complete, fully arranged ${genreDescription} song as an MP3 with high-end studio music platform quality.`;
   const fullPrompt = [
-    `Create a complete, fully arranged ${genreDescription} song as an MP3 with high-end studio music platform quality.`,
+    shapeInstruction,
     durationInstruction,
     `Theme: ${prompt}.`,
     `Variation: ${variantLabel}.`,
@@ -111,7 +122,9 @@ export const generateSongAudio = async ({
     `Creative controls: weirdness ${weirdness}%, style influence ${styleInfluence}%.`,
     `Arrangement must follow these selected sounds: ${arrangementDescription}.`,
     'Production must feel studio-recorded: polished lead vocal, tight timing, rich stereo instrumental, clear low end, balanced drums, strong hook, radio-ready loudness, and mastered final mix.',
-    durationMode === 'preview'
+    isClipModel
+      ? 'Write and perform a short preview with intro impact, hook highlight, strong selected instruments, and a clean 30-second ending.'
+      : durationMode === 'preview'
       ? 'Write and perform a compact premium preview with intro, hook, verse/chorus highlight, and a clean teaser ending.'
       : 'Write and perform the full prompt from start to finish. Include intro, verse 1, pre-chorus, chorus, verse 2, bridge, final chorus, and outro. The ending must feel complete, not cut off.',
     `Avoid these production failures: ${negativeProductionRules || 'thin demo, karaoke feel, weak drums, muddy bass, buried vocal, off-key vocal, random mumbling, abrupt cutoff, copyrighted imitation.'}`,
@@ -119,7 +132,7 @@ export const generateSongAudio = async ({
   ].join(' ');
 
   const result = await ai.models.generateContent({
-    model: LYRIA_MODEL,
+    model,
     contents: fullPrompt,
   });
 
@@ -145,7 +158,7 @@ export const generateSongAudio = async ({
     audioBase64,
     mimeType,
     lyrics: lyrics.join('\n\n') || 'Lyrics not generated for this track.',
-    model: LYRIA_MODEL,
+    model,
   };
 };
 

@@ -8,7 +8,7 @@ import TaurusLandingPage from './components/TaurusLandingPage';
 import TaurusVoiceHub from './components/TaurusVoiceHub';
 import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, consumeGenerationCredit, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadVoiceProfileSample, saveVoiceProfile, uploadRemixReference, getEffectivePlanConfig, getTimestampMillis, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, GENERATE_TWO_SONGS_COST, UserProfile, UserTier } from './firebase';
 
-interface Song { id: string; userId?: string; idea: string; prompt: string; audioUrl: string; storagePath?: string; mimeType?: string; lyrics: string; instrumentTags?: string[]; voiceStrength?: string; voiceProfileId?: string; voiceProfileName?: string; remixMode?: string; remixReferencePath?: string; remixReferenceName?: string; createdAt: number; }
+interface Song { id: string; userId?: string; idea: string; prompt: string; audioUrl: string; storagePath?: string; mimeType?: string; lyrics: string; lyriaModel?: LyriaModelId; instrumentTags?: string[]; voiceStrength?: string; voiceProfileId?: string; voiceProfileName?: string; remixMode?: string; remixReferencePath?: string; remixReferenceName?: string; createdAt: number; }
 interface VoiceProfile { id: string; userId?: string; name: string; sampleUrl: string; storagePath: string; contentType: string; consent: boolean; consentText: string; createdAt: number; }
 type GenerateResponse = { audioBase64: string; mimeType?: string; lyrics?: string; model?: string; };
 type TaurusPayInvoice = {
@@ -27,6 +27,7 @@ type TaurusPayInvoice = {
 type StudioPage = 'landing' | 'create' | 'history' | 'wallet' | 'plans';
 type StudioPanel = 'voice' | 'developers' | 'admin' | null;
 type StudioVersion = 'A' | 'B' | 'C' | 'D';
+type LyriaModelId = 'lyria-3-clip-preview' | 'lyria-3-pro-preview';
 
 interface StudioRoute {
   page: StudioPage;
@@ -43,6 +44,10 @@ const SINGERS = ['Male', 'Female', 'Duet'];
 const LANGS = ['Burmese', 'English', 'Burmese + English'];
 const QUALITY = ['Taurus Studio', 'Taurus Apex', 'Taurus Custom'];
 const STRUCTURES = ['3:00 Studio Map', 'Rap Hook Map', 'Cinematic Build', 'Chill Loop'];
+const LYRIA_MODEL_OPTIONS: Array<{ id: LyriaModelId; label: string; note: string }> = [
+  { id: 'lyria-3-clip-preview', label: 'Lyria 3 Clip', note: '30 sec trial preview' },
+  { id: 'lyria-3-pro-preview', label: 'Lyria 3 Pro', note: 'Full song premium' },
+];
 const STUDIO_PAGES: StudioPage[] = ['landing', 'create', 'history', 'wallet', 'plans'];
 const STUDIO_PANELS: Array<Exclude<StudioPanel, null>> = ['voice', 'developers', 'admin'];
 const PACKAGES: Array<{ id: UserTier; title: string; credits: string; price: string }> = [
@@ -198,6 +203,7 @@ export default function AppStudio() {
   const [singer, setSinger] = useState('Male');
   const [lang, setLang] = useState('Burmese');
   const [quality, setQuality] = useState('Taurus Studio');
+  const [lyriaModel, setLyriaModel] = useState<LyriaModelId>('lyria-3-clip-preview');
   const [bpm, setBpm] = useState(120);
   const [structure, setStructure] = useState('3:00 Studio Map');
   const audioRef = useRef(new Audio());
@@ -238,13 +244,19 @@ export default function AppStudio() {
   const taurusId = profile?.taurusId || (user ? buildTaurusAccountCode(user.uid) : '');
   const filtered = useMemo(() => history.filter(s => `${s.idea} ${s.prompt}`.toLowerCase().includes(search.toLowerCase())), [history, search]);
   const selectedVoiceProfile = useMemo(() => voiceProfiles.find(item => item.id === selectedVoiceProfileId) || null, [voiceProfiles, selectedVoiceProfileId]);
-  const premiumPreviewEnabled = owner || plan.id === 'premium';
-  const generationCountLabel = premiumPreviewEnabled ? '4' : '2';
+  const canUseProLyria = owner || plan.id === 'premium';
+  const effectiveLyriaModel: LyriaModelId = canUseProLyria ? lyriaModel : 'lyria-3-clip-preview';
+  const activeLyriaOption = LYRIA_MODEL_OPTIONS.find(item => item.id === effectiveLyriaModel) || LYRIA_MODEL_OPTIONS[0];
+  const generationCountLabel = effectiveLyriaModel === 'lyria-3-clip-preview' ? '2 clips' : '2 songs';
   const connectedWalletLabel = tonAddress ? compactWalletAddress(tonAddress) : 'Not connected';
 
   useEffect(() => {
     if (tonAddress) setPaymentWallet(tonAddress);
   }, [tonAddress]);
+
+  useEffect(() => {
+    setLyriaModel(canUseProLyria ? 'lyria-3-pro-preview' : 'lyria-3-clip-preview');
+  }, [canUseProLyria]);
 
   const handleGoogleLogin = async () => {
     setError(null);
@@ -290,7 +302,7 @@ export default function AppStudio() {
     const q = query(collection(db, 'users', user.uid, 'songs'), orderBy('createdAt', 'desc'), limit(30));
     return onSnapshot(q, snap => setHistory(snap.docs.map(d => {
       const x = d.data();
-      return { id: d.id, userId: x.userId || user.uid, idea: x.idea || 'Untitled', prompt: x.prompt || '', audioUrl: x.audioUrl || '', storagePath: x.storagePath, mimeType: x.mimeType || 'audio/mpeg', lyrics: x.lyrics || '', instrumentTags: x.instrumentTags || [], voiceStrength: x.voiceStrength || '', voiceProfileId: x.voiceProfileId || '', voiceProfileName: x.voiceProfileName || '', remixMode: x.remixMode || '', remixReferencePath: x.remixReferencePath || '', remixReferenceName: x.remixReferenceName || '', createdAt: x.createdAt?.toMillis?.() || Date.now() } as Song;
+      return { id: d.id, userId: x.userId || user.uid, idea: x.idea || 'Untitled', prompt: x.prompt || '', audioUrl: x.audioUrl || '', storagePath: x.storagePath, mimeType: x.mimeType || 'audio/mpeg', lyrics: x.lyrics || '', lyriaModel: x.lyriaModel || 'lyria-3-pro-preview', instrumentTags: x.instrumentTags || [], voiceStrength: x.voiceStrength || '', voiceProfileId: x.voiceProfileId || '', voiceProfileName: x.voiceProfileName || '', remixMode: x.remixMode || '', remixReferencePath: x.remixReferencePath || '', remixReferenceName: x.remixReferenceName || '', createdAt: x.createdAt?.toMillis?.() || Date.now() } as Song;
     })));
   }, [user]);
 
@@ -398,16 +410,13 @@ export default function AppStudio() {
       setProgress(`Checking ${GENERATE_TWO_SONGS_COST} credits...`);
       const usage = await consumeGenerationCredit(user.uid, GENERATE_TWO_SONGS_COST);
       if (!usage.allowed) throw new Error(`Not enough credits. Remaining: ${usage.remaining}.`);
+      const clipMode = effectiveLyriaModel === 'lyria-3-clip-preview';
       const variants: Array<{ version: StudioVersion; durationMode: 'full' | 'preview'; label: string; title: string }> = [
-        { version: 'A', durationMode: 'full', label: 'Version A polished commercial master', title: 'Version A' },
-        { version: 'B', durationMode: 'full', label: 'Version B deep cold cinematic master', title: 'Version B' },
-        ...(premiumPreviewEnabled ? [
-          { version: 'C' as StudioVersion, durationMode: 'preview' as const, label: 'Premium Preview C power vocal hook preview', title: 'Premium Preview C' },
-          { version: 'D' as StudioVersion, durationMode: 'preview' as const, label: 'Premium Preview D cinematic instrumental preview', title: 'Premium Preview D' },
-        ] : []),
+        { version: 'A', durationMode: clipMode ? 'preview' : 'full', label: clipMode ? 'Lyria 3 Clip Preview A polished hook sample' : 'Lyria 3 Pro Version A polished commercial master', title: clipMode ? 'Clip Preview A' : 'Version A' },
+        { version: 'B', durationMode: clipMode ? 'preview' : 'full', label: clipMode ? 'Lyria 3 Clip Preview B deep cinematic hook sample' : 'Lyria 3 Pro Version B deep cold cinematic master', title: clipMode ? 'Clip Preview B' : 'Version B' },
       ];
       for (const variant of variants) {
-        setProgress(`Generating ${variant.title}...`);
+        setProgress(`Generating ${variant.title} with ${activeLyriaOption.label}...`);
         const corePrompt = buildStudioPrompt({ idea, lyrics, genre, mood, voice, voiceStrength, singer, lang, bpm, structure, quality, instruments, version: variant.version });
         const studio = getStudioProductionPreset({ genre, mood, voice, voiceStrength, singer, lang, bpm, structure, instruments, version: variant.version });
         const voiceProfilePrompt = selectedVoiceProfile
@@ -437,12 +446,13 @@ export default function AppStudio() {
           masteringProfile: studio.masteringProfile,
           negativeProductionRules: studio.negativeProductionRules,
           sectionMap: studio.sectionMap,
+          lyriaModel: effectiveLyriaModel,
         });
         setProgress(`Saving ${variant.title}...`);
         const blob = audioBase64ToBlob(response.audioBase64, response.mimeType);
         const id = `${Date.now()}-${variant.version}`;
         const uploaded = await uploadSongAudio(user.uid, id, blob);
-        await saveSong(user.uid, { id, idea: compactTitle(idea, mood, genre, variant.title), prompt: compiled, audioUrl: uploaded.audioUrl, storagePath: uploaded.storagePath, mimeType: uploaded.mimeType, lyrics: response.lyrics || lyrics || 'Generated by Taurus Studio.', instrumentTags: instruments, voiceStrength, voiceProfileId: selectedVoiceProfile?.id || '', voiceProfileName: selectedVoiceProfile?.name || '', remixMode, remixReferencePath: remixReference?.storagePath || '', remixReferenceName: remixReference?.name || '' });
+        await saveSong(user.uid, { id, idea: compactTitle(idea, mood, genre, variant.title), prompt: compiled, audioUrl: uploaded.audioUrl, storagePath: uploaded.storagePath, mimeType: uploaded.mimeType, lyrics: response.lyrics || lyrics || 'Generated by Taurus Studio.', lyriaModel: (response.model as LyriaModelId) || effectiveLyriaModel, instrumentTags: instruments, voiceStrength, voiceProfileId: selectedVoiceProfile?.id || '', voiceProfileName: selectedVoiceProfile?.name || '', remixMode, remixReferencePath: remixReference?.storagePath || '', remixReferenceName: remixReference?.name || '' });
       }
       setProgress(`Done. ${variants.length} studio versions saved.`);
     } catch (e: any) { setError(e.message || 'Generation failed.'); setProgress('Failed'); }
@@ -535,6 +545,7 @@ export default function AppStudio() {
                   <Sparkles className="h-8 w-8 text-[#D4A945]"/>
                   <div className="mt-8 space-y-4">
                     <div><p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-500">Quality</p><p className="mt-1 font-black text-white">{quality}</p></div>
+                    <div><p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-500">Lyria Model</p><p className="mt-1 font-black text-white">{activeLyriaOption.label}</p><p className="mt-1 text-xs text-[#D4A945]">{activeLyriaOption.note}</p></div>
                     <div><p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-500">Voice</p><p className="mt-1 font-black text-white">{singer} {voice}</p><p className="mt-1 text-xs text-[#D4A945]">{voiceStrength}</p></div>
                     <div><p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-500">Instruments</p><p className="mt-1 text-sm font-black text-white">{instruments.join(' · ') || 'Studio Core'}</p></div>
                     <div><p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-500">Tempo</p><p className="mt-1 font-black text-white">{bpm} BPM</p></div>
@@ -556,7 +567,22 @@ export default function AppStudio() {
               <div className="relative mt-6 grid gap-5 lg:grid-cols-2">
                 <div className="rounded-[1.75rem] border border-white/10 bg-black/30 p-5">
                   <h3 className="mb-5 text-lg font-black">Sound DNA</h3>
-                  <div className="space-y-5"><div><p className="mb-2 text-sm font-bold text-zinc-300">Quality</p>{chips(QUALITY, quality, setQuality)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Genre</p>{chips(GENRES, genre, setGenre)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Mood</p>{chips(MOODS, mood, setMood)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Instruments</p><div className="flex flex-wrap gap-2">{INSTRUMENT_CHOICES.map(item => <button key={item} onClick={() => toggleInstrument(item)} className={`rounded-2xl border px-3 py-2 text-sm font-semibold transition-colors ${instruments.includes(item) ? 'border-[#D4A945] bg-[#D4A945] text-black' : 'border-white/10 bg-white/[0.04] text-zinc-400 hover:border-[#D4A94555] hover:text-white'}`}>{item}</button>)}</div></div></div>
+                  <div className="space-y-5">
+                    <div>
+                      <p className="mb-2 text-sm font-bold text-zinc-300">Lyria 3 Model</p>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {LYRIA_MODEL_OPTIONS.map(option => {
+                          const locked = option.id === 'lyria-3-pro-preview' && !canUseProLyria;
+                          const active = effectiveLyriaModel === option.id;
+                          return <button key={option.id} disabled={locked} onClick={() => setLyriaModel(option.id)} className={`rounded-2xl border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${active ? 'border-[#D4A945] bg-[#D4A945] text-black' : 'border-white/10 bg-white/[0.04] text-zinc-300 hover:border-[#D4A94555]'}`}><span className="block text-sm font-black">{option.label}</span><span className={`mt-1 block text-xs ${active ? 'text-black/70' : 'text-zinc-500'}`}>{locked ? 'Premium / Owner only' : option.note}</span></button>;
+                        })}
+                      </div>
+                    </div>
+                    <div><p className="mb-2 text-sm font-bold text-zinc-300">Quality</p>{chips(QUALITY, quality, setQuality)}</div>
+                    <div><p className="mb-2 text-sm font-bold text-zinc-300">Genre</p>{chips(GENRES, genre, setGenre)}</div>
+                    <div><p className="mb-2 text-sm font-bold text-zinc-300">Mood</p>{chips(MOODS, mood, setMood)}</div>
+                    <div><p className="mb-2 text-sm font-bold text-zinc-300">Instruments</p><div className="flex flex-wrap gap-2">{INSTRUMENT_CHOICES.map(item => <button key={item} onClick={() => toggleInstrument(item)} className={`rounded-2xl border px-3 py-2 text-sm font-semibold transition-colors ${instruments.includes(item) ? 'border-[#D4A945] bg-[#D4A945] text-black' : 'border-white/10 bg-white/[0.04] text-zinc-400 hover:border-[#D4A94555] hover:text-white'}`}>{item}</button>)}</div></div>
+                  </div>
                 </div>
                 <div className="rounded-[1.75rem] border border-white/10 bg-black/30 p-5">
                   <h3 className="mb-5 text-lg font-black">Voice Direction</h3>

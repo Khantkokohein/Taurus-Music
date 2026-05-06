@@ -156,6 +156,7 @@ export interface Song {
   storagePath?: string;
   mimeType?: string;
   lyrics: string;
+  lyriaModel?: 'lyria-3-clip-preview' | 'lyria-3-pro-preview';
   instrumentTags?: string[];
   voiceStrength?: string;
   voiceProfileId?: string;

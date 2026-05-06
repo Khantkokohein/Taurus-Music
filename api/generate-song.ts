@@ -1,26 +1,40 @@
-const LYRIA_MODEL = 'lyria-3-pro-preview';
-const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || 'AIzaSyDjowhLt-pq5DKd-phnS1Hwx7tdRomJCNQ';
+import { getAdminDb } from './_firebaseAdmin.js';
+import { requireFirebaseAuth } from './_serverAuth.js';
+import type { VerifiedFirebaseUser } from './_serverAuth.js';
 
-const requireFirebaseAuth = async (req: any) => {
-  const authorization = req.headers?.authorization || req.headers?.Authorization || '';
-  const idToken = typeof authorization === 'string' && authorization.startsWith('Bearer ')
-    ? authorization.slice('Bearer '.length)
-    : '';
+type LyriaModelId = 'lyria-3-clip-preview' | 'lyria-3-pro-preview';
 
-  if (!idToken) {
-    throw new Error('Please login again to use Taurus AI.');
-  }
+const FREE_LYRIA_MODEL: LyriaModelId = 'lyria-3-clip-preview';
+const PRO_LYRIA_MODEL: LyriaModelId = 'lyria-3-pro-preview';
+const OWNER_EMAIL = 'koheinkhantko51@gmail.com';
+const ALLOWED_LYRIA_MODELS = new Set<LyriaModelId>([FREE_LYRIA_MODEL, PRO_LYRIA_MODEL]);
 
-  const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_API_KEY}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idToken }),
-  });
+const isOwnerEmail = (email?: string | null) => (email || '').trim().toLowerCase() === OWNER_EMAIL;
 
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload.users?.[0]?.localId) {
-    throw new Error('Login session expired. Please sign in again.');
-  }
+const getTimestampMillis = (value: any) => {
+  if (!value) return 0;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  if (typeof value._seconds === 'number') return value._seconds * 1000;
+  return 0;
+};
+
+const isPremiumPlanActive = (profile: any) => {
+  const tier = String(profile?.tier || 'free');
+  if (tier !== 'premium') return false;
+  const expiresAt = getTimestampMillis(profile?.subscriptionExpiresAt);
+  return expiresAt === 0 || expiresAt > Date.now();
+};
+
+const resolveLyriaModel = async (user: VerifiedFirebaseUser, requestedModel: unknown): Promise<LyriaModelId> => {
+  const requested = ALLOWED_LYRIA_MODELS.has(requestedModel as LyriaModelId)
+    ? requestedModel as LyriaModelId
+    : PRO_LYRIA_MODEL;
+  if (isOwnerEmail(user.email)) return requested;
+
+  const snap = await getAdminDb().collection('users').doc(user.uid).get();
+  const profile = snap.data() || {};
+  if (isPremiumPlanActive(profile)) return requested;
+  return FREE_LYRIA_MODEL;
 };
 
 const generateSongAudio = async ({
@@ -43,6 +57,7 @@ const generateSongAudio = async ({
   masteringProfile,
   negativeProductionRules,
   sectionMap,
+  lyriaModel,
 }: {
   prompt: string;
   genreDescription: string;
@@ -63,6 +78,7 @@ const generateSongAudio = async ({
   masteringProfile: string;
   negativeProductionRules: string;
   sectionMap: string;
+  lyriaModel: LyriaModelId;
 }) => {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
   if (!apiKey) {
@@ -71,11 +87,17 @@ const generateSongAudio = async ({
 
   const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey });
-  const durationInstruction = durationMode === 'preview'
+  const isClipModel = lyriaModel === FREE_LYRIA_MODEL;
+  const durationInstruction = isClipModel
+    ? 'Target duration must be 30 seconds. This is a free trial Lyria 3 Clip preview, not a full song.'
+    : durationMode === 'preview'
     ? 'Target duration must be about 60 seconds. This is a premium preview, so make it feel exciting but end cleanly at the preview point.'
     : 'Target duration must be at least 2 minutes 50 seconds and no longer than 3 minutes 30 seconds. Do not make a short sample.';
+  const shapeInstruction = isClipModel
+    ? `Create a polished 30-second ${genreDescription} preview clip as an MP3 with high-end studio music platform quality.`
+    : `Create a complete, fully arranged ${genreDescription} song as an MP3 with high-end studio music platform quality.`;
   const fullPrompt = [
-    `Create a complete, fully arranged ${genreDescription} song as an MP3 with high-end studio music platform quality.`,
+    shapeInstruction,
     durationInstruction,
     `Theme: ${prompt}.`,
     `Variation: ${variantLabel}.`,
@@ -90,7 +112,9 @@ const generateSongAudio = async ({
     `Creative controls: weirdness ${weirdness}%, style influence ${styleInfluence}%.`,
     `Arrangement must follow these selected sounds: ${arrangementDescription}.`,
     'Production must feel studio-recorded: polished lead vocal, tight timing, rich stereo instrumental, clear low end, balanced drums, strong hook, radio-ready loudness, and mastered final mix.',
-    durationMode === 'preview'
+    isClipModel
+      ? 'Write and perform a short preview with intro impact, hook highlight, strong selected instruments, and a clean 30-second ending.'
+      : durationMode === 'preview'
       ? 'Write and perform a compact premium preview with intro, hook, verse/chorus highlight, and a clean teaser ending.'
       : 'Write and perform the full prompt from start to finish. Include intro, verse 1, pre-chorus, chorus, verse 2, bridge, final chorus, and outro. The ending must feel complete, not cut off.',
     `Avoid these production failures: ${negativeProductionRules || 'thin demo, karaoke feel, weak drums, muddy bass, buried vocal, off-key vocal, random mumbling, abrupt cutoff, copyrighted imitation.'}`,
@@ -98,7 +122,7 @@ const generateSongAudio = async ({
   ].join(' ');
 
   const result = await ai.models.generateContent({
-    model: LYRIA_MODEL,
+    model: lyriaModel,
     contents: fullPrompt,
   });
 
@@ -124,7 +148,7 @@ const generateSongAudio = async ({
     audioBase64,
     mimeType,
     lyrics: lyrics.join('\n\n') || 'Lyrics not generated for this track.',
-    model: LYRIA_MODEL,
+    model: lyriaModel,
   };
 };
 
@@ -135,8 +159,8 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    await requireFirebaseAuth(req);
-    const { prompt, genreDescription, arrangementDescription, modelProfile, lyricsText, lyricsMode, instrumental, styleText, artistName, weirdness, styleInfluence, durationMode, variantLabel, voice, vocalProduction, instrumentalProduction, masteringProfile, negativeProductionRules, sectionMap } = req.body || {};
+    const user = await requireFirebaseAuth(req);
+    const { prompt, genreDescription, arrangementDescription, modelProfile, lyricsText, lyricsMode, instrumental, styleText, artistName, weirdness, styleInfluence, durationMode, variantLabel, voice, vocalProduction, instrumentalProduction, masteringProfile, negativeProductionRules, sectionMap, lyriaModel } = req.body || {};
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ error: 'Prompt is required.' });
     }
@@ -161,6 +185,7 @@ export default async function handler(req: any, res: any) {
       masteringProfile: typeof masteringProfile === 'string' ? masteringProfile.slice(0, 700) : '',
       negativeProductionRules: typeof negativeProductionRules === 'string' ? negativeProductionRules.slice(0, 600) : '',
       sectionMap: typeof sectionMap === 'string' ? sectionMap.slice(0, 500) : '',
+      lyriaModel: await resolveLyriaModel(user, lyriaModel),
     });
 
     return res.status(200).json(result);
