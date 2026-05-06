@@ -233,8 +233,15 @@ export const claimDailyPointsIfNeeded = async (uid: string, displayName = '') =>
     if (typeof data.songCreditBalance !== 'number') updates.songCreditBalance = 0;
     if (typeof data.apiAccessEnabled !== 'boolean') updates.apiAccessEnabled = true;
     if (!data.lastPointGrantDate) updates.lastPointGrantDate = today;
-    if (typeof data.points !== 'number') updates.points = FREE_STARTER_CREDITS;
-    if (typeof data.totalPointsEarned !== 'number') updates.totalPointsEarned = FREE_STARTER_CREDITS;
+    const currentPoints = typeof data.points === 'number' ? data.points : 0;
+    const currentTotalPoints = typeof data.totalPointsEarned === 'number' ? data.totalPointsEarned : 0;
+    if (plan.id === 'free' && data.lastMonthlyRefillDate !== month) {
+      updates.points = Math.max(currentPoints, FREE_STARTER_CREDITS);
+      updates.totalPointsEarned = Math.max(currentTotalPoints, FREE_STARTER_CREDITS);
+    } else {
+      if (typeof data.points !== 'number') updates.points = FREE_STARTER_CREDITS;
+      if (typeof data.totalPointsEarned !== 'number') updates.totalPointsEarned = FREE_STARTER_CREDITS;
+    }
     if (data.weeklyLimit !== plan.weeklyLimit) updates.weeklyLimit = plan.weeklyLimit;
     if (data.monthlyLimit !== plan.monthlyLimit) updates.monthlyLimit = plan.monthlyLimit;
     if (typeof data.dailyGenerationCount !== 'number' || data.lastGenerationDate !== today) {
@@ -355,6 +362,8 @@ export const checkGenerationAccess = async (uid: string): Promise<GenerationUsag
   if (!isOwnerProfile(data) && isUserBanned(data)) return { allowed: false, mode: 'banned', remaining: 0 };
   if (isOwnerProfile(data)) return { allowed: true, mode: 'owner', remaining: UNLIMITED_REMAINING, weeklyRemaining: UNLIMITED_REMAINING, monthlyRemaining: UNLIMITED_REMAINING, dailyRemaining: UNLIMITED_REMAINING };
   const quota = getQuotaState(data);
+  const pointBalance = Number(data.points || 0);
+  const spendableRemaining = Math.min(quota.remaining, pointBalance);
   await updateDoc(userRef, {
     weeklyLimit: quota.weeklyLimit,
     monthlyLimit: quota.monthlyLimit,
@@ -365,7 +374,7 @@ export const checkGenerationAccess = async (uid: string): Promise<GenerationUsag
     lastRefillDate: quota.resetWeekly ? getTodayKey() : (data.lastRefillDate || getTodayKey()),
     lastMonthlyRefillDate: quota.resetMonthly ? getMonthKey() : (data.lastMonthlyRefillDate || getMonthKey()),
   });
-  return { allowed: quota.remaining > 0, mode: 'tier', remaining: quota.remaining, weeklyRemaining: quota.weeklyRemaining, monthlyRemaining: quota.monthlyRemaining, dailyRemaining: quota.dailyRemaining };
+  return { allowed: spendableRemaining > 0, mode: pointBalance > 0 ? 'tier' : 'points', remaining: spendableRemaining, weeklyRemaining: quota.weeklyRemaining, monthlyRemaining: quota.monthlyRemaining, dailyRemaining: quota.dailyRemaining };
 };
 
 export const consumeGenerationCredit = async (uid: string, cost = GENERATE_TWO_SONGS_COST): Promise<GenerationUsageResult> => {
@@ -377,10 +386,14 @@ export const consumeGenerationCredit = async (uid: string, cost = GENERATE_TWO_S
     if (!isOwnerProfile(data) && isUserBanned(data)) return { allowed: false, mode: 'banned' as const, remaining: 0 };
     if (isOwnerProfile(data)) return { allowed: true, mode: 'owner' as const, remaining: UNLIMITED_REMAINING, weeklyRemaining: UNLIMITED_REMAINING, monthlyRemaining: UNLIMITED_REMAINING, dailyRemaining: UNLIMITED_REMAINING };
     const quota = getQuotaState(data);
-    if (quota.remaining < cost) return { allowed: false, mode: 'tier' as const, remaining: quota.remaining, weeklyRemaining: quota.weeklyRemaining, monthlyRemaining: quota.monthlyRemaining, dailyRemaining: quota.dailyRemaining };
+    const pointBalance = Number(data.points || 0);
+    const spendableRemaining = Math.min(quota.remaining, pointBalance);
+    if (pointBalance < cost) return { allowed: false, mode: 'points' as const, remaining: pointBalance, weeklyRemaining: quota.weeklyRemaining, monthlyRemaining: quota.monthlyRemaining, dailyRemaining: quota.dailyRemaining };
+    if (quota.remaining < cost) return { allowed: false, mode: 'tier' as const, remaining: spendableRemaining, weeklyRemaining: quota.weeklyRemaining, monthlyRemaining: quota.monthlyRemaining, dailyRemaining: quota.dailyRemaining };
     const nextWeeklyUsed = quota.songsUsedThisWeek + cost;
     const nextMonthlyUsed = quota.songsUsedThisMonth + cost;
     const nextDailyUsed = quota.dailyUsed + cost;
+    const nextPoints = pointBalance - cost;
     const weeklyRemaining = Math.max(quota.weeklyLimit - nextWeeklyUsed, 0);
     const monthlyRemaining = Math.max(quota.monthlyLimit - nextMonthlyUsed, 0);
     const dailyRemaining = quota.plan.id === 'free' ? Math.max(FREE_DAILY_CREDIT_CAP - nextDailyUsed, 0) : UNLIMITED_REMAINING;
@@ -391,11 +404,12 @@ export const consumeGenerationCredit = async (uid: string, cost = GENERATE_TWO_S
       songsUsedThisWeek: nextWeeklyUsed,
       songsUsedThisMonth: nextMonthlyUsed,
       dailyGenerationCount: nextDailyUsed,
+      points: nextPoints,
       lastGenerationDate: getTodayKey(),
       lastRefillDate: quota.resetWeekly ? getTodayKey() : (data.lastRefillDate || getTodayKey()),
       lastMonthlyRefillDate: quota.resetMonthly ? getMonthKey() : (data.lastMonthlyRefillDate || getMonthKey()),
     });
-    return { allowed: true, mode: 'tier' as const, remaining, weeklyRemaining, monthlyRemaining, dailyRemaining };
+    return { allowed: true, mode: 'points' as const, remaining: Math.min(remaining, nextPoints), weeklyRemaining, monthlyRemaining, dailyRemaining };
   });
 };
 

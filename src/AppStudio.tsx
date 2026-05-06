@@ -195,9 +195,10 @@ export default function AppStudio() {
   const plan = getEffectivePlanConfig(profile);
   const monthlyLimit = expired ? plan.monthlyLimit : (profile?.monthlyLimit || plan.monthlyLimit);
   const monthlyUsed = profile?.songsUsedThisMonth || 0;
-  const dailyUsed = profile?.dailyGenerationCount || 0;
-  const credits = owner ? '∞' : String(Math.max(monthlyLimit - monthlyUsed, 0));
-  const daily = owner ? '∞' : plan.id === 'free' ? `${Math.max(monthlyLimit - monthlyUsed, 0)}/month` : 'No cap';
+  const monthlyRemaining = Math.max(monthlyLimit - monthlyUsed, 0);
+  const pointBalance = Math.max(Number(profile?.points || 0), 0);
+  const credits = !user ? 'Login' : owner ? '∞' : String(pointBalance);
+  const daily = !user ? 'Connect Gmail' : owner ? '∞' : plan.id === 'free' ? `${monthlyRemaining}/month` : 'No cap';
   const admin = owner || profile?.role === 'admin';
   const taurusId = profile?.taurusId || (user ? buildTaurusAccountCode(user.uid) : '');
   const filtered = useMemo(() => history.filter(s => `${s.idea} ${s.prompt}`.toLowerCase().includes(search.toLowerCase())), [history, search]);
@@ -206,6 +207,16 @@ export default function AppStudio() {
   useEffect(() => {
     if (tonAddress) setPaymentWallet(tonAddress);
   }, [tonAddress]);
+
+  const handleGoogleLogin = async () => {
+    setError(null);
+    try {
+      await signInWithGoogle();
+      setProgress('Gmail connected.');
+    } catch (e: any) {
+      setError(e?.message || 'Gmail login failed. Please try again.');
+    }
+  };
 
   useEffect(() => {
     const initialRoute = readStudioRoute();
@@ -269,6 +280,7 @@ export default function AppStudio() {
 
   const generate = async () => {
     if (!user) return setError('Login with Gmail first.');
+    if (!profile) return setError('Gmail connected. Profile is loading, please try again in a moment.');
     if (!idea.trim() && !lyrics.trim()) return setError('Add idea or lyrics.');
     setIsGenerating(true); setError(null);
     try {
@@ -363,7 +375,7 @@ export default function AppStudio() {
         onOpenVoice={() => openPanel('voice')}
         onOpenDevelopers={() => openPanel('developers')}
         onOpenWallet={() => navigatePage('wallet')}
-        onLogin={() => signInWithGoogle()}
+        onLogin={handleGoogleLogin}
       />
     </div>;
   }
@@ -379,7 +391,7 @@ export default function AppStudio() {
         <div className="mt-10 rounded-3xl border border-white/10 bg-black/30 p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-[#D4A945]">Plan</p><p className="mt-2 font-semibold">{owner ? 'Owner Unlimited' : plan.name}</p>{taurusId && <p className="mt-1 font-mono text-xs text-zinc-500">{taurusId}</p>}<p className="text-sm text-zinc-400">Credits: {credits}</p><p className="text-sm text-zinc-400">Free month: {daily}</p></div>
       </aside>
       <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">
-        <header className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div className="relative max-w-xl flex-1"><Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search songs..." className="w-full rounded-2xl border border-white/10 bg-black/30 py-3 pl-11 pr-4 outline-none transition-colors focus:border-[#D4A94588]"/></div><div className="flex gap-3"><div className="rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-3 text-sm font-bold text-[#D4A945]"><Wallet className="mr-2 inline h-4 w-4"/>{credits}</div>{user ? <button onClick={logout} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold transition-colors hover:text-white"><LogOut className="mr-2 inline h-4 w-4"/>Logout</button> : <button onClick={signInWithGoogle} className="rounded-2xl bg-[#D4A945] px-4 py-3 text-sm font-black text-black transition-colors hover:bg-[#e6bd5b]"><UserIcon className="mr-2 inline h-4 w-4"/>Gmail</button>}</div></header>
+        <header className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div className="relative max-w-xl flex-1"><Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search songs..." className="w-full rounded-2xl border border-white/10 bg-black/30 py-3 pl-11 pr-4 outline-none transition-colors focus:border-[#D4A94588]"/></div><div className="flex gap-3"><div className="rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-3 text-sm font-bold text-[#D4A945]"><Wallet className="mr-2 inline h-4 w-4"/>{credits}</div>{user ? <button onClick={logout} title={user.email || 'Gmail connected'} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold transition-colors hover:text-white"><LogOut className="mr-2 inline h-4 w-4"/>Gmail Connected</button> : <button onClick={handleGoogleLogin} className="rounded-2xl bg-[#D4A945] px-4 py-3 text-sm font-black text-black transition-colors hover:bg-[#e6bd5b]"><UserIcon className="mr-2 inline h-4 w-4"/>Gmail</button>}</div></header>
         <div className="mb-6 flex gap-2 overflow-x-auto pb-1 lg:hidden">{(['landing','create','history','wallet','plans'] as StudioPage[]).map(x => <button key={x} onClick={() => navigatePage(x)} className={`shrink-0 rounded-2xl px-4 py-2 text-xs font-bold capitalize ${activePage===x?'bg-[#D4A945] text-black':'border border-white/10 bg-white/[0.04] text-zinc-300'}`}>{x}</button>)}<button onClick={() => openPanel('voice')} className="shrink-0 rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-2 text-xs font-bold text-[#D4A945]">Voice</button><button onClick={() => openPanel('developers')} className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-bold">API</button></div>
         {error && <div className="mb-5 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200"><AlertCircle className="mr-2 inline h-4 w-4"/>{error}</div>}
         <div className="grid min-w-0 gap-6 xl:grid-cols-[1fr_360px]">
@@ -438,7 +450,7 @@ export default function AppStudio() {
 
               <div className="relative mt-6 flex flex-col gap-3 rounded-[1.75rem] border border-[#D4A94533] bg-[#D4A9450d] p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div><p className="text-sm font-black text-white">Studio render queue</p><p className="mt-1 text-xs text-zinc-500">{progress}</p></div>
-                <button onClick={generate} disabled={isGenerating || !user} className="rounded-2xl bg-[#D4A945] px-6 py-4 font-black text-black transition-colors hover:bg-[#e6bd5b] disabled:opacity-50">{isGenerating ? <Loader2 className="mr-2 inline h-5 w-5 animate-spin"/> : <Sparkles className="mr-2 inline h-5 w-5"/>}Generate 2 · {GENERATE_TWO_SONGS_COST} credits</button>
+                <button onClick={generate} disabled={isGenerating || !user || !profile} className="rounded-2xl bg-[#D4A945] px-6 py-4 font-black text-black transition-colors hover:bg-[#e6bd5b] disabled:opacity-50">{isGenerating ? <Loader2 className="mr-2 inline h-5 w-5 animate-spin"/> : <Sparkles className="mr-2 inline h-5 w-5"/>}{!user ? 'Login Gmail to use free credits' : !profile ? 'Loading profile...' : `Generate 2 · ${GENERATE_TWO_SONGS_COST} credits`}</button>
               </div>
             </div>
           </div>}
