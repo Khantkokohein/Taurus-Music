@@ -8,6 +8,8 @@ const FREE_LYRIA_MODEL: LyriaModelId = 'lyria-3-clip-preview';
 const PRO_LYRIA_MODEL: LyriaModelId = 'lyria-3-pro-preview';
 const OWNER_EMAIL = 'koheinkhantko51@gmail.com';
 const ALLOWED_LYRIA_MODELS = new Set<LyriaModelId>([FREE_LYRIA_MODEL, PRO_LYRIA_MODEL]);
+const CHALLENGE_CREATION_START_MS = Date.parse('2026-05-16T00:00:00+06:30');
+const CHALLENGE_CREATION_END_MS = Date.parse('2026-05-19T23:59:59+06:30');
 
 const isOwnerEmail = (email?: string | null) => (email || '').trim().toLowerCase() === OWNER_EMAIL;
 
@@ -25,6 +27,19 @@ const isPremiumPlanActive = (profile: any) => {
   return expiresAt === 0 || expiresAt > Date.now();
 };
 
+const isChallengeProGrantActive = (profile: any) => {
+  const now = Date.now();
+  const registered = profile?.challengeRegistered === true;
+  const limit = Number(profile?.challengeGenerateLimit || 0);
+  const used = Number(profile?.challengeGenerateUsed || 0);
+  return registered
+    && now >= CHALLENGE_CREATION_START_MS
+    && now <= CHALLENGE_CREATION_END_MS
+    && limit > 0
+    && used > 0
+    && used <= limit;
+};
+
 const resolveLyriaModel = async (user: VerifiedFirebaseUser, requestedModel: unknown): Promise<LyriaModelId> => {
   const requested = ALLOWED_LYRIA_MODELS.has(requestedModel as LyriaModelId)
     ? requestedModel as LyriaModelId
@@ -34,6 +49,7 @@ const resolveLyriaModel = async (user: VerifiedFirebaseUser, requestedModel: unk
   const snap = await getAdminDb().collection('users').doc(user.uid).get();
   const profile = snap.data() || {};
   if (isPremiumPlanActive(profile)) return requested;
+  if (isChallengeProGrantActive(profile)) return requested;
   return FREE_LYRIA_MODEL;
 };
 

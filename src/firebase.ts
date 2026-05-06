@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc, updateDoc, serverTimestamp, Timestamp, runTransaction } from 'firebase/firestore';
+import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, serverTimestamp, Timestamp, runTransaction } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -22,6 +22,13 @@ export const UNLIMITED_REMAINING = Number.MAX_SAFE_INTEGER;
 export const TAURUS_COIN_PER_USDT = 100;
 export const SONG_CREDIT_COST = GENERATE_TWO_SONGS_COST;
 export const DEFAULT_API_RATE_LIMIT_PER_MINUTE = 60;
+export const CHALLENGE_ID = 'taurus-music-studio-challenge-2026-05';
+export const CHALLENGE_GENERATE_ATTEMPTS = 5;
+export const CHALLENGE_REGISTRATION_START_MS = Date.parse('2026-05-07T00:00:00+06:30');
+export const CHALLENGE_REGISTRATION_END_MS = Date.parse('2026-05-15T23:59:59+06:30');
+export const CHALLENGE_CREATION_START_MS = Date.parse('2026-05-16T00:00:00+06:30');
+export const CHALLENGE_CREATION_END_MS = Date.parse('2026-05-19T23:59:59+06:30');
+export const CHALLENGE_WINNER_DATE_MS = Date.parse('2026-05-20T00:00:00+06:30');
 
 export const isOwnerEmail = (email?: string | null) => (
   (email || '').trim().toLowerCase() === OWNER_EMAIL
@@ -100,6 +107,14 @@ export const getEffectivePlanConfig = (profile?: Pick<UserProfile, 'tier' | 'sub
   getPlanConfig(isSubscriptionExpired(profile) ? 'free' : profile?.tier)
 );
 
+export const isChallengeRegistrationOpen = (now = Date.now()) => (
+  now >= CHALLENGE_REGISTRATION_START_MS && now <= CHALLENGE_REGISTRATION_END_MS
+);
+
+export const isChallengeCreationOpen = (now = Date.now()) => (
+  now >= CHALLENGE_CREATION_START_MS && now <= CHALLENGE_CREATION_END_MS
+);
+
 export interface UserProfile {
   uid: string;
   email: string;
@@ -145,6 +160,11 @@ export interface UserProfile {
   chatLastViolationAt?: Timestamp;
   chatBanCount?: number;
   chatViolationCount?: number;
+  challengeRegistered?: boolean;
+  challengeRegisteredAt?: Timestamp;
+  challengeGenerateLimit?: number;
+  challengeGenerateUsed?: number;
+  challengeEntryId?: string;
 }
 
 export interface Song {
@@ -177,6 +197,37 @@ export interface VoiceProfile {
   contentType: string;
   consent: boolean;
   consentText: string;
+  createdAt: any;
+}
+
+export interface ChallengeEntry {
+  id: string;
+  challengeId: string;
+  userId: string;
+  sourceSongId: string;
+  title: string;
+  prompt: string;
+  audioUrl: string;
+  mimeType: string;
+  lyrics: string;
+  authorName: string;
+  authorEmail?: string;
+  createdAt: any;
+  publishedAt: any;
+  likeCount: number;
+  commentCount: number;
+  saveCount: number;
+  score: number;
+  visibility: 'public';
+  originalOnly: true;
+}
+
+export interface ChallengeComment {
+  id: string;
+  entryId: string;
+  userId: string;
+  authorName: string;
+  text: string;
   createdAt: any;
 }
 
@@ -441,6 +492,181 @@ export const consumeGenerationCredit = async (uid: string, cost = GENERATE_TWO_S
 };
 
 export const checkAndUpdateUsage = consumeGenerationCredit;
+
+export type ChallengeUsageResult = {
+  allowed: boolean;
+  mode: 'challenge' | 'closed' | 'not-registered' | 'limit' | 'banned' | 'owner';
+  remaining: number;
+  used: number;
+  limit: number;
+};
+
+export const getChallengeQuotaState = (profile?: Pick<UserProfile, 'challengeRegistered' | 'challengeGenerateLimit' | 'challengeGenerateUsed'> | null) => {
+  const limit = Number(profile?.challengeGenerateLimit || CHALLENGE_GENERATE_ATTEMPTS);
+  const used = Number(profile?.challengeGenerateUsed || 0);
+  return {
+    registered: profile?.challengeRegistered === true,
+    limit,
+    used,
+    remaining: Math.max(limit - used, 0),
+  };
+};
+
+export const registerForChallenge = async (uid: string): Promise<ChallengeUsageResult> => {
+  const userRef = doc(db, 'users', uid);
+  const registrationRef = doc(db, 'challengeRegistrations', uid);
+  return runTransaction(db, async (transaction) => {
+    const userSnap = await transaction.get(userRef);
+    if (!userSnap.exists()) return { allowed: false, mode: 'not-registered' as const, remaining: 0, used: 0, limit: CHALLENGE_GENERATE_ATTEMPTS };
+    const data = userSnap.data() as UserProfile;
+    const owner = isOwnerProfile(data);
+    if (!owner && isUserBanned(data)) return { allowed: false, mode: 'banned' as const, remaining: 0, used: 0, limit: CHALLENGE_GENERATE_ATTEMPTS };
+    if (!owner && !isChallengeRegistrationOpen()) {
+      const quota = getChallengeQuotaState(data);
+      return { allowed: false, mode: 'closed' as const, remaining: quota.remaining, used: quota.used, limit: quota.limit };
+    }
+    const current = getChallengeQuotaState(data);
+    const limit = Math.max(current.limit, CHALLENGE_GENERATE_ATTEMPTS);
+    transaction.update(userRef, {
+      challengeRegistered: true,
+      challengeRegisteredAt: data.challengeRegisteredAt || serverTimestamp(),
+      challengeGenerateLimit: limit,
+      challengeGenerateUsed: current.used,
+    });
+    transaction.set(registrationRef, {
+      challengeId: CHALLENGE_ID,
+      userId: uid,
+      email: data.email,
+      displayName: data.displayName || data.email || 'Taurus User',
+      taurusId: data.taurusId || buildTaurusAccountCode(uid),
+      generateLimit: limit,
+      generateUsed: current.used,
+      registeredAt: data.challengeRegisteredAt || serverTimestamp(),
+    }, { merge: true });
+    return { allowed: true, mode: owner ? 'owner' as const : 'challenge' as const, remaining: Math.max(limit - current.used, 0), used: current.used, limit };
+  });
+};
+
+export const consumeChallengeGenerationCredit = async (uid: string): Promise<ChallengeUsageResult> => {
+  const userRef = doc(db, 'users', uid);
+  return runTransaction(db, async (transaction) => {
+    const userSnap = await transaction.get(userRef);
+    if (!userSnap.exists()) return { allowed: false, mode: 'not-registered' as const, remaining: 0, used: 0, limit: CHALLENGE_GENERATE_ATTEMPTS };
+    const data = userSnap.data() as UserProfile;
+    const owner = isOwnerProfile(data);
+    const quota = getChallengeQuotaState(data);
+    if (owner) return { allowed: true, mode: 'owner' as const, remaining: UNLIMITED_REMAINING, used: quota.used, limit: quota.limit };
+    if (isUserBanned(data)) return { allowed: false, mode: 'banned' as const, remaining: 0, used: quota.used, limit: quota.limit };
+    if (!quota.registered) return { allowed: false, mode: 'not-registered' as const, remaining: 0, used: quota.used, limit: quota.limit };
+    if (!isChallengeCreationOpen()) return { allowed: false, mode: 'closed' as const, remaining: quota.remaining, used: quota.used, limit: quota.limit };
+    if (quota.remaining <= 0) return { allowed: false, mode: 'limit' as const, remaining: 0, used: quota.used, limit: quota.limit };
+    const nextUsed = quota.used + 1;
+    transaction.update(userRef, {
+      challengeGenerateLimit: quota.limit,
+      challengeGenerateUsed: nextUsed,
+    });
+    transaction.set(doc(db, 'challengeRegistrations', uid), {
+      generateLimit: quota.limit,
+      generateUsed: nextUsed,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    return { allowed: true, mode: 'challenge' as const, remaining: Math.max(quota.limit - nextUsed, 0), used: nextUsed, limit: quota.limit };
+  });
+};
+
+export const saveChallengeEntry = async (uid: string, song: Pick<Song, 'id' | 'idea' | 'prompt' | 'audioUrl' | 'mimeType' | 'lyrics'>, profile?: UserProfile | null) => {
+  const userRef = doc(db, 'users', uid);
+  const entryRef = doc(db, 'challengeEntries', uid);
+  return runTransaction(db, async (transaction) => {
+    const userSnap = await transaction.get(userRef);
+    if (!userSnap.exists()) throw new Error('User profile missing.');
+    const data = userSnap.data() as UserProfile;
+    if (!isOwnerProfile(data) && isUserBanned(data)) throw new Error('This account is banned.');
+    if (!data.challengeRegistered) throw new Error('Register for the challenge first.');
+    if (!isChallengeCreationOpen() && !isOwnerProfile(data)) throw new Error('Challenge posting opens on May 16, 2026.');
+    const entrySnap = await transaction.get(entryRef);
+    if (entrySnap.exists()) throw new Error('You already posted one challenge entry.');
+    const title = (song.idea || 'Taurus Challenge Song').slice(0, 160);
+    const entry: ChallengeEntry = {
+      id: uid,
+      challengeId: CHALLENGE_ID,
+      userId: uid,
+      sourceSongId: song.id,
+      title,
+      prompt: (song.prompt || '').slice(0, 1500),
+      audioUrl: song.audioUrl,
+      mimeType: song.mimeType || 'audio/mpeg',
+      lyrics: (song.lyrics || '').slice(0, 6000),
+      authorName: (profile?.displayName || data.displayName || data.email || 'Taurus User').slice(0, 80),
+      authorEmail: data.email,
+      createdAt: serverTimestamp(),
+      publishedAt: serverTimestamp(),
+      likeCount: 0,
+      commentCount: 0,
+      saveCount: 0,
+      score: 0,
+      visibility: 'public',
+      originalOnly: true,
+    };
+    transaction.set(entryRef, entry);
+    transaction.update(userRef, { challengeEntryId: uid });
+    return entry;
+  });
+};
+
+export const toggleChallengeReaction = async (entryId: string, uid: string, type: 'like' | 'save') => {
+  const entryRef = doc(db, 'challengeEntries', entryId);
+  const reactionRef = doc(db, 'challengeEntries', entryId, 'reactions', uid);
+  return runTransaction(db, async (transaction) => {
+    const entrySnap = await transaction.get(entryRef);
+    if (!entrySnap.exists()) throw new Error('Challenge entry not found.');
+    const entry = entrySnap.data() as ChallengeEntry;
+    const reactionSnap = await transaction.get(reactionRef);
+    const reaction = reactionSnap.exists() ? reactionSnap.data() as { liked?: boolean; saved?: boolean } : {};
+    const field = type === 'like' ? 'liked' : 'saved';
+    const countField = type === 'like' ? 'likeCount' : 'saveCount';
+    const nextActive = !reaction[field];
+    const diff = nextActive ? 1 : -1;
+    transaction.set(reactionRef, {
+      userId: uid,
+      liked: type === 'like' ? nextActive : reaction.liked === true,
+      saved: type === 'save' ? nextActive : reaction.saved === true,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    transaction.update(entryRef, {
+      [countField]: Math.max(Number((entry as any)[countField] || 0) + diff, 0),
+      score: Math.max(Number(entry.score || 0) + diff, 0),
+      updatedAt: serverTimestamp(),
+    });
+    return { liked: type === 'like' ? nextActive : reaction.liked === true, saved: type === 'save' ? nextActive : reaction.saved === true };
+  });
+};
+
+export const addChallengeComment = async (entryId: string, uid: string, text: string, profile?: UserProfile | null) => {
+  const cleanText = text.trim().slice(0, 280);
+  if (!cleanText) throw new Error('Comment is empty.');
+  const entryRef = doc(db, 'challengeEntries', entryId);
+  const commentRef = doc(collection(db, 'challengeEntries', entryId, 'comments'));
+  return runTransaction(db, async (transaction) => {
+    const entrySnap = await transaction.get(entryRef);
+    if (!entrySnap.exists()) throw new Error('Challenge entry not found.');
+    const entry = entrySnap.data() as ChallengeEntry;
+    transaction.set(commentRef, {
+      id: commentRef.id,
+      entryId,
+      userId: uid,
+      authorName: (profile?.displayName || profile?.email || 'Taurus User').slice(0, 80),
+      text: cleanText,
+      createdAt: serverTimestamp(),
+    });
+    transaction.update(entryRef, {
+      commentCount: Number(entry.commentCount || 0) + 1,
+      score: Number(entry.score || 0) + 1,
+      updatedAt: serverTimestamp(),
+    });
+    return commentRef.id;
+  });
+};
 
 export const saveSong = async (userId: string, song: Omit<Song, 'userId' | 'createdAt'>) => {
   const songRef = doc(db, 'users', userId, 'songs', song.id);

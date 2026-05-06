@@ -89,7 +89,12 @@ service cloud.firestore {
           'taurusNumber',
           'taurusCoinBalance',
           'songCreditBalance',
-          'apiAccessEnabled'
+          'apiAccessEnabled',
+          'challengeRegistered',
+          'challengeRegisteredAt',
+          'challengeGenerateLimit',
+          'challengeGenerateUsed',
+          'challengeEntryId'
         ])
         && (!('taurusId' in incoming()) || isValidTaurusAccountCode(incoming().taurusId))
         && (!('taurusNumber' in incoming()) || incoming().taurusNumber == incoming().taurusId)
@@ -207,6 +212,132 @@ service cloud.firestore {
         && incoming().visibility == 'public'
         && incoming().createdAt == request.time
         && incoming().publishedAt == request.time;
+    }
+
+    function isValidChallengeRegistration(userId) {
+      return incoming().keys().hasOnly([
+          'challengeId',
+          'userId',
+          'email',
+          'displayName',
+          'taurusId',
+          'generateLimit',
+          'generateUsed',
+          'registeredAt',
+          'updatedAt'
+        ])
+        && incoming().userId == userId
+        && incoming().email == request.auth.token.email
+        && incoming().challengeId == 'taurus-music-studio-challenge-2026-05'
+        && incoming().displayName is string
+        && incoming().displayName.size() > 0
+        && incoming().displayName.size() <= 80
+        && incoming().generateLimit is number
+        && incoming().generateLimit >= 5
+        && incoming().generateLimit <= 5
+        && incoming().generateUsed is number
+        && incoming().generateUsed >= 0
+        && incoming().generateUsed <= incoming().generateLimit
+        && (!('registeredAt' in incoming()) || incoming().registeredAt == request.time || incoming().registeredAt == existing().registeredAt)
+        && (!('updatedAt' in incoming()) || incoming().updatedAt == request.time);
+    }
+
+    function isValidChallengeEntry() {
+      return incoming().keys().hasOnly([
+          'id',
+          'challengeId',
+          'userId',
+          'sourceSongId',
+          'title',
+          'prompt',
+          'audioUrl',
+          'mimeType',
+          'lyrics',
+          'authorName',
+          'authorEmail',
+          'createdAt',
+          'publishedAt',
+          'likeCount',
+          'commentCount',
+          'saveCount',
+          'score',
+          'visibility',
+          'originalOnly',
+          'updatedAt'
+        ])
+        && incoming().challengeId == 'taurus-music-studio-challenge-2026-05'
+        && incoming().userId == request.auth.uid
+        && incoming().id == request.auth.uid
+        && isValidId(incoming().sourceSongId)
+        && incoming().title is string
+        && incoming().title.size() > 0
+        && incoming().title.size() <= 160
+        && incoming().prompt is string
+        && incoming().prompt.size() <= 1500
+        && incoming().audioUrl is string
+        && incoming().audioUrl.size() < 1000
+        && incoming().mimeType is string
+        && incoming().mimeType.size() <= 80
+        && incoming().lyrics is string
+        && incoming().lyrics.size() <= 6000
+        && incoming().authorName is string
+        && incoming().authorName.size() > 0
+        && incoming().authorName.size() <= 80
+        && (!('authorEmail' in incoming()) || incoming().authorEmail == request.auth.token.email)
+        && incoming().likeCount == 0
+        && incoming().commentCount == 0
+        && incoming().saveCount == 0
+        && incoming().score == 0
+        && incoming().visibility == 'public'
+        && incoming().originalOnly == true
+        && incoming().createdAt == request.time
+        && incoming().publishedAt == request.time;
+    }
+
+    function isChallengeCounterUpdate() {
+      return incoming().diff(existing()).affectedKeys().hasOnly(['likeCount', 'commentCount', 'saveCount', 'score', 'updatedAt'])
+        && incoming().userId == existing().userId
+        && incoming().sourceSongId == existing().sourceSongId
+        && incoming().challengeId == existing().challengeId
+        && incoming().title == existing().title
+        && incoming().prompt == existing().prompt
+        && incoming().audioUrl == existing().audioUrl
+        && incoming().mimeType == existing().mimeType
+        && incoming().lyrics == existing().lyrics
+        && incoming().authorName == existing().authorName
+        && incoming().visibility == existing().visibility
+        && incoming().originalOnly == existing().originalOnly
+        && incoming().likeCount is number
+        && incoming().commentCount is number
+        && incoming().saveCount is number
+        && incoming().score is number
+        && incoming().likeCount >= 0
+        && incoming().commentCount >= 0
+        && incoming().saveCount >= 0
+        && incoming().score >= 0
+        && incoming().updatedAt == request.time;
+    }
+
+    function isValidChallengeReaction(userId) {
+      return incoming().keys().hasOnly(['userId', 'liked', 'saved', 'updatedAt'])
+        && userId == request.auth.uid
+        && incoming().userId == request.auth.uid
+        && incoming().liked is bool
+        && incoming().saved is bool
+        && incoming().updatedAt == request.time;
+    }
+
+    function isValidChallengeComment(entryId) {
+      return incoming().keys().hasOnly(['id', 'entryId', 'userId', 'authorName', 'text', 'createdAt'])
+        && incoming().entryId == entryId
+        && incoming().userId == request.auth.uid
+        && incoming().authorName is string
+        && incoming().authorName.size() > 0
+        && incoming().authorName.size() <= 80
+        && incoming().text is string
+        && incoming().text.size() > 0
+        && incoming().text.size() <= 280
+        && incoming().createdAt == request.time;
     }
 
     function hasValidApiScopes() {
@@ -383,6 +514,43 @@ service cloud.firestore {
         && isOwner(existing().userId)
         && isValidPublicSong();
       allow delete: if isSignedIn() && (isOwner(existing().userId) || isAdmin());
+    }
+
+    // Taurus Studio Challenge
+    match /challengeRegistrations/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow create, update: if isOwner(userId)
+        && isChatAllowed()
+        && isValidChallengeRegistration(userId);
+      allow delete: if isAdmin();
+    }
+
+    match /challengeEntries/{entryId} {
+      allow read: if true;
+      allow create: if isSignedIn()
+        && isChatAllowed()
+        && entryId == request.auth.uid
+        && isValidChallengeEntry();
+      allow update: if isSignedIn()
+        && isChatAllowed()
+        && isChallengeCounterUpdate();
+      allow delete: if isAdmin();
+
+      match /reactions/{userId} {
+        allow read: if isSignedIn();
+        allow create, update: if isOwner(userId)
+          && isChatAllowed()
+          && isValidChallengeReaction(userId);
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isSignedIn()
+          && isChatAllowed()
+          && isValidChallengeComment(entryId);
+        allow update, delete: if isAdmin();
+      }
     }
 
     // Presence

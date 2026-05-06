@@ -3,10 +3,11 @@ import { TonConnectButton, useTonAddress, useTonConnectModal, useTonWallet } fro
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, doc, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { AlertCircle, CheckCircle2, Clock3, Code2, CreditCard, Download, History, Loader2, LogOut, Mic2, Music, Pause, Play, Search, Settings, Sparkles, ThumbsDown, ThumbsUp, User as UserIcon, Wallet } from 'lucide-react';
+import ChallengeHub, { ChallengePage } from './components/ChallengeHub';
 import DeveloperHub from './components/DeveloperHub';
 import TaurusLandingPage from './components/TaurusLandingPage';
 import TaurusVoiceHub from './components/TaurusVoiceHub';
-import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, consumeGenerationCredit, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadVoiceProfileSample, saveVoiceProfile, uploadRemixReference, getEffectivePlanConfig, getTimestampMillis, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, GENERATE_TWO_SONGS_COST, UserProfile, UserTier } from './firebase';
+import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, consumeGenerationCredit, consumeChallengeGenerationCredit, registerForChallenge, saveChallengeEntry, toggleChallengeReaction, addChallengeComment, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadVoiceProfileSample, saveVoiceProfile, uploadRemixReference, getEffectivePlanConfig, getTimestampMillis, getChallengeQuotaState, isChallengeRegistrationOpen, isChallengeCreationOpen, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, GENERATE_TWO_SONGS_COST, UserProfile, UserTier, ChallengeEntry } from './firebase';
 
 interface Song { id: string; userId?: string; idea: string; prompt: string; audioUrl: string; storagePath?: string; mimeType?: string; lyrics: string; lyriaModel?: LyriaModelId; editorOperation?: string; instrumentTags?: string[]; voiceStrength?: string; voiceProfileId?: string; voiceProfileName?: string; remixMode?: string; remixReferencePath?: string; remixReferenceName?: string; createdAt: number; }
 interface VoiceProfile { id: string; userId?: string; name: string; sampleUrl: string; storagePath: string; contentType: string; consent: boolean; consentText: string; createdAt: number; }
@@ -26,7 +27,7 @@ type TaurusPayInvoice = {
   reference: string;
   expiresAt?: string | null;
 };
-type StudioPage = 'landing' | 'create' | 'history' | 'wallet' | 'plans';
+type StudioPage = 'landing' | 'create' | 'history' | 'wallet' | 'plans' | ChallengePage;
 type StudioPanel = 'voice' | 'developers' | 'admin' | null;
 type StudioVersion = 'A' | 'B' | 'C' | 'D';
 type LyriaModelId = 'lyria-3-clip-preview' | 'lyria-3-pro-preview';
@@ -50,7 +51,9 @@ const LYRIA_MODEL_OPTIONS: Array<{ id: LyriaModelId; label: string; note: string
   { id: 'lyria-3-clip-preview', label: 'Lyria 3 Clip', note: '30 sec trial preview' },
   { id: 'lyria-3-pro-preview', label: 'Lyria 3 Pro', note: 'Full song premium' },
 ];
-const STUDIO_PAGES: StudioPage[] = ['landing', 'create', 'history', 'wallet', 'plans'];
+const CHALLENGE_PAGES: ChallengePage[] = ['challenge', 'challenge-rules', 'challenge-feed', 'challenge-leaderboard'];
+const STUDIO_PAGES: StudioPage[] = ['landing', 'create', 'history', 'wallet', 'plans', ...CHALLENGE_PAGES];
+const STUDIO_NAV_PAGES: StudioPage[] = ['landing', 'create', 'history', 'challenge', 'wallet', 'plans'];
 const STUDIO_PANELS: Array<Exclude<StudioPanel, null>> = ['voice', 'developers', 'admin'];
 const PACKAGES: Array<{ id: UserTier; title: string; credits: string; price: string }> = [
   { id: 'personal', title: 'Top Up 50', credits: '50 credits / 5 creates', price: '3.75 USDT' },
@@ -83,6 +86,7 @@ const audioBase64ToBlob = (audioBase64: string, mimeType?: string) => {
 };
 
 const isStudioPage = (value: string): value is StudioPage => STUDIO_PAGES.includes(value as StudioPage);
+const isChallengePage = (value: StudioPage): value is ChallengePage => CHALLENGE_PAGES.includes(value as ChallengePage);
 const isStudioPanel = (value: string): value is Exclude<StudioPanel, null> => STUDIO_PANELS.includes(value as Exclude<StudioPanel, null>);
 
 const readStudioRoute = (): StudioRoute => {
@@ -97,6 +101,13 @@ const readStudioRoute = (): StudioRoute => {
 
 const routeHash = (route: StudioRoute) => `#${route.page}${route.panel ? `/${route.panel}` : ''}`;
 
+const studioPageLabel = (page: StudioPage) => {
+  if (page === 'challenge') return 'Challenge';
+  if (page === 'challenge-rules') return 'Rules';
+  if (page === 'challenge-feed') return 'Media';
+  if (page === 'challenge-leaderboard') return 'Leaderboard';
+  return page;
+};
 const formatDate = (value: number) => new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(value);
 const compactTitle = (idea: string, mood: string, genre: string, v: string) => `${idea.replace(/3[- ]?minute|create|song|about/gi, '').replace(/[^a-zA-Z0-9\u1000-\u109F\s-]/g, '').trim().split(/\s+/).slice(0, 5).join(' ') || `${mood} ${genre}`} (${v})`;
 const compactWalletAddress = (address: string) => address ? `${address.slice(0, 6)}...${address.slice(-6)}` : '';
@@ -168,6 +179,12 @@ export default function AppStudio() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [history, setHistory] = useState<Song[]>([]);
+  const [challengeEntries, setChallengeEntries] = useState<ChallengeEntry[]>([]);
+  const [challengeCommentText, setChallengeCommentText] = useState<Record<string, string>>({});
+  const [challengeReactionState, setChallengeReactionState] = useState<Record<string, { liked?: boolean; saved?: boolean }>>({});
+  const [isRegisteringChallenge, setIsRegisteringChallenge] = useState(false);
+  const [postingChallengeSongId, setPostingChallengeSongId] = useState('');
+  const [playingChallengeEntryId, setPlayingChallengeEntryId] = useState('');
   const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfile[]>([]);
   const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
@@ -239,6 +256,10 @@ export default function AppStudio() {
   const navigatePage = (page: StudioPage) => writeRoute({ page, panel: null });
   const openPanel = (panel: Exclude<StudioPanel, null>) => writeRoute({ page: activePage, panel });
   const closePanel = () => writeRoute({ page: activePage, panel: null }, 'replace');
+  const navigateBack = () => {
+    if (window.history.length > 1) window.history.back();
+    else navigatePage('create');
+  };
 
   const owner = isOwnerEmail(user?.email) || isOwnerProfile(profile);
   const expired = isSubscriptionExpired(profile);
@@ -253,10 +274,17 @@ export default function AppStudio() {
   const taurusId = profile?.taurusId || (user ? buildTaurusAccountCode(user.uid) : '');
   const filtered = useMemo(() => history.filter(s => `${s.idea} ${s.prompt}`.toLowerCase().includes(search.toLowerCase())), [history, search]);
   const selectedVoiceProfile = useMemo(() => voiceProfiles.find(item => item.id === selectedVoiceProfileId) || null, [voiceProfiles, selectedVoiceProfileId]);
-  const canUseProLyria = owner || plan.id === 'premium';
-  const effectiveLyriaModel: LyriaModelId = canUseProLyria ? lyriaModel : 'lyria-3-clip-preview';
+  const challengeQuota = getChallengeQuotaState(profile);
+  const challengeRegistrationOpen = isChallengeRegistrationOpen();
+  const challengeCreationOpen = isChallengeCreationOpen();
+  const challengeCanGenerate = challengeQuota.registered && challengeCreationOpen && challengeQuota.remaining > 0;
+  const canUseProLyria = owner || plan.id === 'premium' || challengeCanGenerate;
+  const effectiveLyriaModel: LyriaModelId = challengeCanGenerate ? 'lyria-3-pro-preview' : canUseProLyria ? lyriaModel : 'lyria-3-clip-preview';
   const activeLyriaOption = LYRIA_MODEL_OPTIONS.find(item => item.id === effectiveLyriaModel) || LYRIA_MODEL_OPTIONS[0];
   const generationCountLabel = effectiveLyriaModel === 'lyria-3-clip-preview' ? '2 clips' : '2 songs';
+  const generateButtonText = challengeCanGenerate
+    ? `Generate 2 songs - Challenge ${challengeQuota.remaining} left`
+    : `Generate ${generationCountLabel} - ${GENERATE_TWO_SONGS_COST} credits`;
   const connectedWalletLabel = tonAddress ? compactWalletAddress(tonAddress) : 'Not connected';
 
   useEffect(() => {
@@ -316,6 +344,37 @@ export default function AppStudio() {
   }, [user]);
 
   useEffect(() => {
+    const q = query(collection(db, 'challengeEntries'), orderBy('score', 'desc'), limit(60));
+    return onSnapshot(q, snap => setChallengeEntries(snap.docs.map(d => {
+      const x = d.data();
+      return {
+        id: d.id,
+        challengeId: x.challengeId || '',
+        userId: x.userId || '',
+        sourceSongId: x.sourceSongId || '',
+        title: x.title || 'Taurus Challenge Song',
+        prompt: x.prompt || '',
+        audioUrl: x.audioUrl || '',
+        mimeType: x.mimeType || 'audio/mpeg',
+        lyrics: x.lyrics || '',
+        authorName: x.authorName || 'Taurus User',
+        authorEmail: x.authorEmail || '',
+        createdAt: x.createdAt?.toMillis?.() || Date.now(),
+        publishedAt: x.publishedAt?.toMillis?.() || Date.now(),
+        likeCount: Number(x.likeCount || 0),
+        commentCount: Number(x.commentCount || 0),
+        saveCount: Number(x.saveCount || 0),
+        score: Number(x.score || 0),
+        visibility: 'public',
+        originalOnly: true,
+      } as ChallengeEntry;
+    })), err => {
+      console.error('Challenge feed failed:', err);
+      setError('Challenge feed failed to load.');
+    });
+  }, []);
+
+  useEffect(() => {
     if (!user) {
       setVoiceProfiles([]);
       setSelectedVoiceProfileId('');
@@ -335,7 +394,7 @@ export default function AppStudio() {
 
   useEffect(() => {
     const a = audioRef.current;
-    const done = () => setIsPlaying(false);
+    const done = () => { setIsPlaying(false); setPlayingChallengeEntryId(''); };
     a.addEventListener('ended', done);
     return () => { a.removeEventListener('ended', done); a.pause(); };
   }, []);
@@ -444,6 +503,65 @@ export default function AppStudio() {
     finally { setVoiceSaving(false); }
   };
 
+  const handleRegisterChallenge = async () => {
+    if (!user) return setError('Login with Gmail first.');
+    setIsRegisteringChallenge(true); setError(null);
+    try {
+      const result = await registerForChallenge(user.uid);
+      if (!result.allowed) throw new Error(result.mode === 'closed' ? 'Challenge registration opens May 7, 2026.' : 'Challenge registration failed.');
+      setProgress(`Challenge registered. ${result.remaining} generate attempts ready.`);
+    } catch (e: any) { setError(e.message || 'Challenge registration failed.'); }
+    finally { setIsRegisteringChallenge(false); }
+  };
+
+  const handlePostChallengeSong = async () => {
+    if (!user) return setError('Login with Gmail first.');
+    if (!profile?.challengeRegistered) return setError('Register for the challenge first.');
+    if (!currentSong) return setError('Select a song from History first.');
+    if (!currentSong.audioUrl || currentSong.audioUrl.startsWith('blob:')) return setError('This song needs permanent audio before posting.');
+    setPostingChallengeSongId(currentSong.id); setError(null);
+    try {
+      await saveChallengeEntry(user.uid, currentSong, profile);
+      setProgress('Challenge entry posted.');
+      navigatePage('challenge-feed');
+    } catch (e: any) { setError(e.message || 'Challenge post failed.'); }
+    finally { setPostingChallengeSongId(''); }
+  };
+
+  const playChallengeEntry = async (entry: ChallengeEntry) => {
+    setPlayingChallengeEntryId(entry.id);
+    await playSong({
+      id: entry.sourceSongId || entry.id,
+      userId: entry.userId,
+      idea: entry.title,
+      prompt: entry.prompt,
+      audioUrl: entry.audioUrl,
+      mimeType: entry.mimeType,
+      lyrics: entry.lyrics,
+      createdAt: typeof entry.publishedAt === 'number' ? entry.publishedAt : getTimestampMillis(entry.publishedAt) || Date.now(),
+    });
+  };
+
+  const toggleChallengeAction = async (entry: ChallengeEntry, type: 'like' | 'save') => {
+    if (!user) return setError('Login with Gmail first.');
+    setError(null);
+    try {
+      const next = await toggleChallengeReaction(entry.id, user.uid, type);
+      setChallengeReactionState(current => ({ ...current, [entry.id]: next }));
+    } catch (e: any) { setError(e.message || 'Challenge reaction failed.'); }
+  };
+
+  const submitChallengeComment = async (entry: ChallengeEntry) => {
+    if (!user) return setError('Login with Gmail first.');
+    const text = (challengeCommentText[entry.id] || '').trim();
+    if (!text) return;
+    setError(null);
+    try {
+      await addChallengeComment(entry.id, user.uid, text, profile);
+      setChallengeCommentText(current => ({ ...current, [entry.id]: '' }));
+    } catch (e: any) { setError(e.message || 'Comment failed.'); }
+  };
+
   const generate = async () => {
     if (!user) return setError('Login with Gmail first.');
     if (!profile) return setError('Gmail connected. Profile is loading, please try again in a moment.');
@@ -456,16 +574,25 @@ export default function AppStudio() {
         setProgress('Uploading cover/remix reference...');
         remixReference = await uploadRemixReference(user.uid, `ref-${Date.now()}`, remixReferenceFile);
       }
-      setProgress(`Checking ${GENERATE_TWO_SONGS_COST} credits...`);
-      const usage = await consumeGenerationCredit(user.uid, GENERATE_TWO_SONGS_COST);
-      if (!usage.allowed) throw new Error(`Not enough credits. Remaining: ${usage.remaining}.`);
-      const clipMode = effectiveLyriaModel === 'lyria-3-clip-preview';
+      const useChallengeQuota = !owner && challengeCanGenerate;
+      const modelForRun: LyriaModelId = useChallengeQuota ? 'lyria-3-pro-preview' : effectiveLyriaModel;
+      if (useChallengeQuota) {
+        setProgress('Checking challenge quota...');
+        const usage = await consumeChallengeGenerationCredit(user.uid);
+        if (!usage.allowed) throw new Error(`Challenge quota unavailable. Remaining: ${usage.remaining}.`);
+      } else {
+        setProgress(`Checking ${GENERATE_TWO_SONGS_COST} credits...`);
+        const usage = await consumeGenerationCredit(user.uid, GENERATE_TWO_SONGS_COST);
+        if (!usage.allowed) throw new Error(`Not enough credits. Remaining: ${usage.remaining}.`);
+      }
+      const clipMode = modelForRun === 'lyria-3-clip-preview';
+      const runLyriaOption = LYRIA_MODEL_OPTIONS.find(item => item.id === modelForRun) || activeLyriaOption;
       const variants: Array<{ version: StudioVersion; durationMode: 'full' | 'preview'; label: string; title: string }> = [
         { version: 'A', durationMode: clipMode ? 'preview' : 'full', label: clipMode ? 'Lyria 3 Clip Preview A polished hook sample' : 'Lyria 3 Pro Version A polished commercial master', title: clipMode ? 'Clip Preview A' : 'Version A' },
         { version: 'B', durationMode: clipMode ? 'preview' : 'full', label: clipMode ? 'Lyria 3 Clip Preview B deep cinematic hook sample' : 'Lyria 3 Pro Version B deep cold cinematic master', title: clipMode ? 'Clip Preview B' : 'Version B' },
       ];
       for (const variant of variants) {
-        setProgress(`Generating ${variant.title} with ${activeLyriaOption.label}...`);
+        setProgress(`Generating ${variant.title} with ${runLyriaOption.label}...`);
         const corePrompt = buildStudioPrompt({ idea, lyrics, genre, mood, voice, voiceStrength, singer, lang, bpm, structure, quality, instruments, version: variant.version });
         const studio = getStudioProductionPreset({ genre, mood, voice, voiceStrength, singer, lang, bpm, structure, instruments, version: variant.version });
         const voiceProfilePrompt = selectedVoiceProfile
@@ -495,13 +622,13 @@ export default function AppStudio() {
           masteringProfile: studio.masteringProfile,
           negativeProductionRules: studio.negativeProductionRules,
           sectionMap: studio.sectionMap,
-          lyriaModel: effectiveLyriaModel,
+          lyriaModel: modelForRun,
         });
         setProgress(`Saving ${variant.title}...`);
         const blob = audioBase64ToBlob(response.audioBase64, response.mimeType);
         const id = `${Date.now()}-${variant.version}`;
         const uploaded = await uploadSongAudio(user.uid, id, blob);
-        await saveSong(user.uid, { id, idea: compactTitle(idea, mood, genre, variant.title), prompt: compiled, audioUrl: uploaded.audioUrl, storagePath: uploaded.storagePath, mimeType: uploaded.mimeType, lyrics: response.lyrics || lyrics || 'Generated by Taurus Studio.', lyriaModel: (response.model as LyriaModelId) || effectiveLyriaModel, instrumentTags: instruments, voiceStrength, voiceProfileId: selectedVoiceProfile?.id || '', voiceProfileName: selectedVoiceProfile?.name || '', remixMode, remixReferencePath: remixReference?.storagePath || '', remixReferenceName: remixReference?.name || '' });
+        await saveSong(user.uid, { id, idea: compactTitle(idea, mood, genre, variant.title), prompt: compiled, audioUrl: uploaded.audioUrl, storagePath: uploaded.storagePath, mimeType: uploaded.mimeType, lyrics: response.lyrics || lyrics || 'Generated by Taurus Studio.', lyriaModel: (response.model as LyriaModelId) || modelForRun, instrumentTags: instruments, voiceStrength, voiceProfileId: selectedVoiceProfile?.id || '', voiceProfileName: selectedVoiceProfile?.name || '', remixMode, remixReferencePath: remixReference?.storagePath || '', remixReferenceName: remixReference?.name || '' });
       }
       setProgress(`Done. ${variants.length} studio versions saved.`);
     } catch (e: any) { setError(e.message || 'Generation failed.'); setProgress('Failed'); }
@@ -575,15 +702,15 @@ export default function AppStudio() {
     <div className="relative flex min-h-screen">
       <aside className="hidden w-72 border-r border-white/10 bg-[#0b0a08]/95 p-6 lg:block">
         <div className="flex items-center gap-3"><div className="grid h-12 w-12 place-items-center rounded-2xl bg-[#D4A94514] text-[#D4A945]"><Music/></div><div><h1 className="text-xl font-black tracking-wide">Taurus</h1><p className="text-xs text-zinc-500">Studio Music OS</p></div></div>
-        <nav className="mt-10 space-y-2 text-sm">{(['landing','create','history','wallet','plans'] as StudioPage[]).map(x => <button key={x} onClick={() => navigatePage(x)} className={`w-full rounded-2xl px-4 py-3 text-left font-bold capitalize transition-colors ${activePage===x?'bg-[#D4A945] text-black':'bg-white/[0.04] text-zinc-300 hover:bg-white/[0.07] hover:text-white'}`}>{x}</button>)}<button onClick={() => openPanel('voice')} className="flex w-full items-center gap-2 rounded-2xl border border-[#D4A94522] bg-[#D4A9450d] px-4 py-3 text-left font-bold text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black"><Mic2 className="h-4 w-4"/>Taurus Voice</button><button onClick={() => openPanel('developers')} className="flex w-full items-center gap-2 rounded-2xl bg-white/[0.04] px-4 py-3 text-left font-bold transition-colors hover:bg-white/[0.07]"><Code2 className="h-4 w-4"/>Developers</button>{admin && <button onClick={() => openPanel('admin')} className="w-full rounded-2xl border border-[#D4A94522] bg-[#D4A94514] px-4 py-3 text-left font-bold text-[#D4A945]">Admin</button>}</nav>
+        <nav className="mt-10 space-y-2 text-sm">{STUDIO_NAV_PAGES.map(x => { const active = activePage === x || (x === 'challenge' && isChallengePage(activePage)); return <button key={x} onClick={() => navigatePage(x)} className={`w-full rounded-2xl px-4 py-3 text-left font-bold capitalize transition-colors ${active?'bg-[#D4A945] text-black':'bg-white/[0.04] text-zinc-300 hover:bg-white/[0.07] hover:text-white'}`}>{studioPageLabel(x)}</button>; })}<button onClick={() => openPanel('voice')} className="flex w-full items-center gap-2 rounded-2xl border border-[#D4A94522] bg-[#D4A9450d] px-4 py-3 text-left font-bold text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black"><Mic2 className="h-4 w-4"/>Taurus Voice</button><button onClick={() => openPanel('developers')} className="flex w-full items-center gap-2 rounded-2xl bg-white/[0.04] px-4 py-3 text-left font-bold transition-colors hover:bg-white/[0.07]"><Code2 className="h-4 w-4"/>Developers</button>{admin && <button onClick={() => openPanel('admin')} className="w-full rounded-2xl border border-[#D4A94522] bg-[#D4A94514] px-4 py-3 text-left font-bold text-[#D4A945]">Admin</button>}</nav>
         <div className="mt-10 rounded-3xl border border-white/10 bg-black/30 p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-[#D4A945]">Plan</p><p className="mt-2 font-semibold">{owner ? 'Owner Unlimited' : plan.name}</p>{taurusId && <p className="mt-1 font-mono text-xs text-zinc-500">{taurusId}</p>}<p className="text-sm text-zinc-400">Credits: {credits}</p><p className="text-sm text-zinc-400">Free month: {daily}</p></div>
       </aside>
       <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">
         <header className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div className="relative max-w-xl flex-1"><Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search songs..." className="w-full rounded-2xl border border-white/10 bg-black/30 py-3 pl-11 pr-4 outline-none transition-colors focus:border-[#D4A94588]"/></div><div className="flex gap-3"><div className="rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-3 text-sm font-bold text-[#D4A945]"><Wallet className="mr-2 inline h-4 w-4"/>{credits}</div>{user ? <button onClick={logout} title={user.email || 'Gmail connected'} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold transition-colors hover:text-white"><LogOut className="mr-2 inline h-4 w-4"/>Gmail Connected</button> : <button onClick={handleGoogleLogin} className="rounded-2xl bg-[#D4A945] px-4 py-3 text-sm font-black text-black transition-colors hover:bg-[#e6bd5b]"><UserIcon className="mr-2 inline h-4 w-4"/>Gmail</button>}</div></header>
-        <div className="mb-6 flex gap-2 overflow-x-auto pb-1 lg:hidden">{(['landing','create','history','wallet','plans'] as StudioPage[]).map(x => <button key={x} onClick={() => navigatePage(x)} className={`shrink-0 rounded-2xl px-4 py-2 text-xs font-bold capitalize ${activePage===x?'bg-[#D4A945] text-black':'border border-white/10 bg-white/[0.04] text-zinc-300'}`}>{x}</button>)}<button onClick={() => openPanel('voice')} className="shrink-0 rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-2 text-xs font-bold text-[#D4A945]">Voice</button><button onClick={() => openPanel('developers')} className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-bold">API</button></div>
+        <div className="mb-6 flex gap-2 overflow-x-auto pb-1 lg:hidden">{STUDIO_NAV_PAGES.map(x => { const active = activePage === x || (x === 'challenge' && isChallengePage(activePage)); return <button key={x} onClick={() => navigatePage(x)} className={`shrink-0 rounded-2xl px-4 py-2 text-xs font-bold capitalize ${active?'bg-[#D4A945] text-black':'border border-white/10 bg-white/[0.04] text-zinc-300'}`}>{studioPageLabel(x)}</button>; })}<button onClick={() => openPanel('voice')} className="shrink-0 rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-2 text-xs font-bold text-[#D4A945]">Voice</button><button onClick={() => openPanel('developers')} className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-bold">API</button></div>
         {error && <div className="mb-5 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200"><AlertCircle className="mr-2 inline h-4 w-4"/>{error}</div>}
-        <div className="grid min-w-0 gap-6 xl:grid-cols-[1fr_360px]">
-          <section className="min-w-0 space-y-6">{activePage === 'create' && <div className="min-w-0 overflow-hidden rounded-[2rem] border border-white/10 bg-[#11100d]/95 shadow-2xl shadow-black/40">
+        <div className={`grid min-w-0 gap-6 ${isChallengePage(activePage) ? 'xl:grid-cols-1' : 'xl:grid-cols-[1fr_360px]'}`}>
+          <section className={`min-w-0 space-y-6 ${isChallengePage(activePage) ? 'xl:col-span-2' : ''}`}>{activePage === 'create' && <div className="min-w-0 overflow-hidden rounded-[2rem] border border-white/10 bg-[#11100d]/95 shadow-2xl shadow-black/40">
             <div className="relative p-6 lg:p-8">
               <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_82%_10%,rgba(212,169,69,.18),transparent_28%)]" />
               <div className="relative grid gap-8 lg:grid-cols-[1fr_260px]">
@@ -678,12 +805,13 @@ export default function AppStudio() {
 
               <div className="relative mt-6 flex flex-col gap-3 rounded-[1.75rem] border border-[#D4A94533] bg-[#D4A9450d] p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div><p className="text-sm font-black text-white">Studio render queue</p><p className="mt-1 text-xs text-zinc-500">{progress}</p></div>
-                <button onClick={generate} disabled={isGenerating || !user || !profile} className="rounded-2xl bg-[#D4A945] px-6 py-4 font-black text-black transition-colors hover:bg-[#e6bd5b] disabled:opacity-50">{isGenerating ? <Loader2 className="mr-2 inline h-5 w-5 animate-spin"/> : <Sparkles className="mr-2 inline h-5 w-5"/>}{!user ? 'Login Gmail to use free credits' : !profile ? 'Loading profile...' : `Generate ${generationCountLabel} · ${GENERATE_TWO_SONGS_COST} credits`}</button>
+                <button onClick={generate} disabled={isGenerating || !user || !profile} className="rounded-2xl bg-[#D4A945] px-6 py-4 font-black text-black transition-colors hover:bg-[#e6bd5b] disabled:opacity-50">{isGenerating ? <Loader2 className="mr-2 inline h-5 w-5 animate-spin"/> : <Sparkles className="mr-2 inline h-5 w-5"/>}{!user ? 'Login Gmail to use free credits' : !profile ? 'Loading profile...' : generateButtonText}</button>
               </div>
             </div>
           </div>}
+            {isChallengePage(activePage) && <ChallengeHub page={activePage} entries={challengeEntries} selectedSongTitle={currentSong?.idea} isRegistered={challengeQuota.registered} registrationOpen={challengeRegistrationOpen || owner} creationOpen={challengeCreationOpen || owner} quotaUsed={challengeQuota.used} quotaLimit={challengeQuota.limit} quotaRemaining={challengeQuota.remaining} entryId={profile?.challengeEntryId} isRegistering={isRegisteringChallenge} postingSongId={postingChallengeSongId} commentTextByEntry={challengeCommentText} reactionState={challengeReactionState} playingEntryId={playingChallengeEntryId} onNavigate={navigatePage} onBack={navigateBack} onRegister={handleRegisterChallenge} onCreateSong={() => navigatePage('create')} onPostSelectedSong={handlePostChallengeSong} onPlayEntry={playChallengeEntry} onToggleLike={(entry) => toggleChallengeAction(entry, 'like')} onToggleSave={(entry) => toggleChallengeAction(entry, 'save')} onCommentChange={(entryId, value) => setChallengeCommentText(current => ({ ...current, [entryId]: value.slice(0, 280) }))} onSubmitComment={submitChallengeComment} />}
             {activePage === 'history' && <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><div className="mb-4 flex items-center justify-between"><h3 className="text-2xl font-bold"><History className="mr-2 inline h-5 w-5 text-violet-300"/>Song History</h3><span className="text-sm text-zinc-500">{filtered.length}</span></div><div className="grid gap-3">{filtered.map(song => <div key={song.id} onClick={() => setCurrentSong(song)} className={`flex cursor-pointer flex-col gap-3 rounded-3xl border bg-black/20 p-4 transition-colors sm:flex-row sm:items-center sm:justify-between ${currentSong?.id===song.id?'border-[#D4A945]':'border-white/10 hover:border-[#D4A94555]'}`}><div className="min-w-0"><p className="truncate font-semibold">{song.idea}</p><p className="text-xs text-zinc-500">{formatDate(song.createdAt)}{song.editorOperation ? ` · ${song.editorOperation}` : ''}</p><div className="mt-2 flex gap-2"><button onClick={(e) => { e.stopPropagation(); setFeedback('like'); }} className="rounded-full bg-white/5 p-2"><ThumbsUp className="h-4 w-4"/></button><button onClick={(e) => { e.stopPropagation(); setFeedback('needs stronger beat/harmony'); }} className="rounded-full bg-white/5 p-2"><ThumbsDown className="h-4 w-4"/></button></div></div><div className="flex gap-2"><button onClick={(e) => { e.stopPropagation(); playSong(song); }} className="rounded-2xl bg-white px-4 py-2 text-zinc-950">{currentSong?.id===song.id && isPlaying ? <Pause className="h-4 w-4"/> : <Play className="h-4 w-4"/>}</button><button onClick={(e) => { e.stopPropagation(); downloadSong(song); }} className="rounded-2xl border border-white/10 px-4 py-2"><Download className="h-4 w-4"/></button></div></div>)}{filtered.length===0 && <p className="rounded-2xl border border-white/10 p-4 text-sm text-zinc-400">No songs yet.</p>}</div></div>}</section>
-          <aside className="space-y-6">{activePage === 'create' && <div className="rounded-[2rem] border border-white/10 bg-[#11100d]/95 p-6 shadow-2xl shadow-black/30">
+          {!isChallengePage(activePage) && <aside className="space-y-6">{activePage === 'create' && <div className="rounded-[2rem] border border-white/10 bg-[#11100d]/95 p-6 shadow-2xl shadow-black/30">
             <h3 className="text-xl font-black">Studio Monitor</h3>
             <div className="mt-5 space-y-4">
               <div className="rounded-3xl border border-[#D4A94533] bg-[#D4A9450d] p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-[#D4A945]">Credits</p><p className="mt-2 text-2xl font-black text-white">{credits}</p></div>
@@ -691,7 +819,7 @@ export default function AppStudio() {
               <div className="rounded-3xl border border-white/10 bg-black/30 p-4"><p className="text-xs font-black uppercase tracking-[0.22em] text-zinc-500">Signal Chain</p><div className="mt-3 space-y-2 text-sm text-zinc-400"><p>Prompt &gt; Lyrics &gt; Section Map</p><p>Vocal Chain &gt; Instrumental Chain</p><p>Master &gt; Save &gt; Export</p></div></div>
               <button onClick={() => openPanel('voice')} className="w-full rounded-2xl border border-[#D4A94555] bg-transparent px-4 py-3 text-sm font-black text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black"><Mic2 className="mr-2 inline h-4 w-4"/>Open Taurus Voice</button>
             </div>
-          </div>}{activePage === 'history' && editorPanel}{activePage === 'wallet' && walletPanel}{activePage === 'plans' && plansPanel}</aside>
+          </div>}{activePage === 'history' && editorPanel}{activePage === 'wallet' && walletPanel}{activePage === 'plans' && plansPanel}</aside>}
         </div>
       </main>
     </div>
