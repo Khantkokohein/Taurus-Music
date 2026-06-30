@@ -1,181 +1,97 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
-import path from 'path';
-import { createServer } from 'http';
+import { createServer } from 'node:http';
+import path from 'node:path';
 import { Server } from 'socket.io';
-import { analyzeVoiceReference, generateChatReply, generateSongAudio, optimizeMusicPrompt } from './src/lib/gemini';
-import { requireFirebaseAuth } from './src/lib/serverAuth';
+import { createServer as createViteServer } from 'vite';
+import aiChatHandler from './api/ai-chat.js';
+import analyzeVoiceHandler from './api/analyze-voice.js';
+import generateSongHandler from './api/generate-song.js';
+import optimizePromptHandler from './api/optimize-prompt.js';
+import { getAdminAuth } from './api/_firebaseAdmin.js';
 
-async function startServer() {
+const PORT = 3000;
+const isProduction = process.env.NODE_ENV === 'production';
+const configuredOrigin = String(process.env.APP_URL || '').trim();
+const allowedOrigins = new Set([
+  ...(configuredOrigin ? [configuredOrigin] : []),
+  ...(!isProduction ? ['http://localhost:3000'] : []),
+]);
+
+const startServer = async () => {
   const app = express();
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
     cors: {
-      origin: "*",
-      methods: ["GET", "POST"]
+      origin: (origin, callback) => {
+        if (origin && allowedOrigins.has(origin)) return callback(null, true);
+        return callback(new Error('Origin is not allowed.'));
+      },
+      methods: ['GET', 'POST'],
+    },
+  });
+
+  app.disable('x-powered-by');
+  app.use(express.json({ limit: '16mb', strict: true }));
+  app.all('/api/optimize-prompt', optimizePromptHandler);
+  app.all('/api/ai-chat', aiChatHandler);
+  app.all('/api/generate-song', generateSongHandler);
+  app.all('/api/analyze-voice', analyzeVoiceHandler);
+
+  io.use(async (socket, next) => {
+    const token = typeof socket.handshake.auth?.token === 'string'
+      ? socket.handshake.auth.token
+      : '';
+    if (!token) return next(new Error('Authentication required.'));
+    try {
+      const user = await getAdminAuth().verifyIdToken(token, true);
+      socket.data.uid = user.uid;
+      return next();
+    } catch {
+      return next(new Error('Authentication required.'));
     }
   });
-  const PORT = 3000;
 
-  // Socket.io logic
   let connectedClients = 0;
-
-  app.use(express.json({ limit: '16mb' }));
-
-  app.post('/api/optimize-prompt', async (req, res) => {
-    try {
-      await requireFirebaseAuth(req);
-      const { idea } = req.body || {};
-      if (!idea || typeof idea !== 'string') {
-        return res.status(400).json({ error: 'Idea is required.' });
-      }
-
-      const prompt = await optimizeMusicPrompt(idea.slice(0, 1000));
-      return res.json({ prompt });
-    } catch (error: any) {
-      console.error('Optimize prompt API error:', error);
-      return res.status(500).json({ error: error?.message || 'Failed to enhance prompt.' });
-    }
-  });
-
-  app.post('/api/ai-chat', async (req, res) => {
-    try {
-      await requireFirebaseAuth(req);
-      const { sourceText, userName, languageHint, recentContext } = req.body || {};
-      if (!sourceText || typeof sourceText !== 'string') {
-        return res.status(400).json({ error: 'Message is required.' });
-      }
-
-      const reply = await generateChatReply({
-        sourceText: sourceText.slice(0, 500),
-        userName: typeof userName === 'string' && userName ? userName.slice(0, 80) : 'friend',
-        languageHint: typeof languageHint === 'string' ? languageHint.slice(0, 40) : 'English',
-        recentContext: typeof recentContext === 'string' ? recentContext.slice(0, 2000) : '',
-      });
-      return res.json({ reply });
-    } catch (error: any) {
-      console.error('AI chat API error:', error);
-      return res.status(500).json({ error: error?.message || 'Failed to generate chat reply.' });
-    }
-  });
-
-  app.post('/api/generate-song', async (req, res) => {
-    try {
-      await requireFirebaseAuth(req);
-      const { prompt, genreDescription, arrangementDescription, modelProfile, lyricsText, lyricsMode, instrumental, styleText, artistName, weirdness, styleInfluence, durationMode, variantLabel, voice, vocalProduction, instrumentalProduction, masteringProfile, negativeProductionRules, sectionMap, lyriaModel } = req.body || {};
-      if (!prompt || typeof prompt !== 'string') {
-        return res.status(400).json({ error: 'Prompt is required.' });
-      }
-
-      const result = await generateSongAudio({
-        prompt: prompt.slice(0, 1200),
-        genreDescription: typeof genreDescription === 'string' ? genreDescription.slice(0, 240) : 'modern pop',
-        arrangementDescription: typeof arrangementDescription === 'string' ? arrangementDescription.slice(0, 500) : 'balanced full-band arrangement',
-        modelProfile: typeof modelProfile === 'string' ? modelProfile.slice(0, 300) : 'Taurus Apex L5 free-start profile with flagship vocal and studio master quality',
-        lyricsText: typeof lyricsText === 'string' ? lyricsText.slice(0, 2000) : '',
-        lyricsMode: lyricsMode === 'auto' ? 'auto' : 'manual',
-        instrumental: instrumental === true,
-        styleText: typeof styleText === 'string' ? styleText.slice(0, 500) : '',
-        artistName: typeof artistName === 'string' ? artistName.slice(0, 80) : '',
-        weirdness: typeof weirdness === 'number' ? Math.max(0, Math.min(100, weirdness)) : 50,
-        styleInfluence: typeof styleInfluence === 'number' ? Math.max(0, Math.min(100, styleInfluence)) : 50,
-        durationMode: durationMode === 'preview' ? 'preview' : 'full',
-        variantLabel: typeof variantLabel === 'string' ? variantLabel.slice(0, 120) : 'main version',
-        voice: typeof voice === 'string' ? voice.slice(0, 120) : 'Duet/Pair',
-        vocalProduction: typeof vocalProduction === 'string' ? vocalProduction.slice(0, 900) : '',
-        instrumentalProduction: typeof instrumentalProduction === 'string' ? instrumentalProduction.slice(0, 900) : '',
-        masteringProfile: typeof masteringProfile === 'string' ? masteringProfile.slice(0, 700) : '',
-        negativeProductionRules: typeof negativeProductionRules === 'string' ? negativeProductionRules.slice(0, 600) : '',
-        sectionMap: typeof sectionMap === 'string' ? sectionMap.slice(0, 500) : '',
-        lyriaModel: typeof lyriaModel === 'string' ? lyriaModel : '',
-      });
-      return res.json(result);
-    } catch (error: any) {
-      console.error('Generate song API error:', error);
-      return res.status(500).json({ error: error?.message || 'Failed to generate song.' });
-    }
-  });
-
-  app.post('/api/analyze-voice', async (req, res) => {
-    try {
-      await requireFirebaseAuth(req);
-      const { audioBase64, mimeType, idea, lyricsText, lyricsMode, instrumental, styleText, artistName, genreDescription, arrangementDescription, modelProfile, weirdness, styleInfluence, voice } = req.body || {};
-      if (!audioBase64 || typeof audioBase64 !== 'string') {
-        return res.status(400).json({ error: 'Voice audio is required.' });
-      }
-      if (audioBase64.length > 16_000_000) {
-        return res.status(413).json({ error: 'Voice reference is too large. Keep it under 12 MB.' });
-      }
-
-      const prompt = await analyzeVoiceReference({
-        audioBase64,
-        mimeType: typeof mimeType === 'string' && mimeType.startsWith('audio/') ? mimeType.slice(0, 80) : 'audio/webm',
-        idea: typeof idea === 'string' ? idea.slice(0, 1000) : '',
-        lyricsText: typeof lyricsText === 'string' ? lyricsText.slice(0, 2000) : '',
-        lyricsMode: lyricsMode === 'auto' ? 'auto' : 'manual',
-        instrumental: instrumental === true,
-        styleText: typeof styleText === 'string' ? styleText.slice(0, 500) : '',
-        artistName: typeof artistName === 'string' ? artistName.slice(0, 80) : '',
-        genreDescription: typeof genreDescription === 'string' ? genreDescription.slice(0, 240) : 'modern pop',
-        arrangementDescription: typeof arrangementDescription === 'string' ? arrangementDescription.slice(0, 500) : 'full-band studio arrangement',
-        modelProfile: typeof modelProfile === 'string' ? modelProfile.slice(0, 300) : 'Taurus Apex L5 free-start profile with flagship vocal and studio master quality',
-        weirdness: typeof weirdness === 'number' ? Math.max(0, Math.min(100, weirdness)) : 50,
-        styleInfluence: typeof styleInfluence === 'number' ? Math.max(0, Math.min(100, styleInfluence)) : 50,
-        voice: typeof voice === 'string' ? voice.slice(0, 120) : 'Duet/Pair',
-      });
-
-      if (!prompt) {
-        return res.status(500).json({ error: 'Voice analysis did not return a prompt. Try a clearer vocal recording.' });
-      }
-
-      return res.json({ prompt });
-    } catch (error: any) {
-      console.error('Analyze voice API error:', error);
-      return res.status(500).json({ error: error?.message || 'Failed to analyze voice.' });
-    }
-  });
-
   io.on('connection', (socket) => {
-    connectedClients++;
-    console.log('A user connected:', socket.id, 'Total:', connectedClients);
+    connectedClients += 1;
     io.emit('user_count', connectedClients);
-    
+
     socket.on('message', (data) => {
-      console.log('Message received:', data);
+      const text = typeof data?.text === 'string' ? data.text.trim().slice(0, 4000) : '';
+      if (!text) return;
       io.emit('message', {
-        ...data,
+        userId: socket.data.uid,
+        text,
         timestamp: new Date().toISOString(),
-        id: Math.random().toString(36).substr(2, 9)
       });
     });
 
     socket.on('disconnect', () => {
-      connectedClients--;
-      console.log('User disconnected:', socket.id, 'Total:', connectedClients);
+      connectedClients = Math.max(connectedClients - 1, 0);
       io.emit('user_count', connectedClients);
     });
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+  if (!isProduction) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: "spa",
+      appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
     const distPath = path.resolve(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    
-    // Express 5 catch-all
-    app.get('*all', (req, res) => {
+    app.get('*all', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  httpServer.listen(PORT, '127.0.0.1', () => {
+    console.log(`Development server listening on http://127.0.0.1:${PORT}`);
   });
-}
+};
 
-startServer();
+startServer().catch(() => {
+  console.error('Server failed to start.');
+  process.exitCode = 1;
+});

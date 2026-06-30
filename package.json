@@ -8,18 +8,23 @@
     "build": "vite build",
     "start": "node server.ts",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:rules": "firebase emulators:exec --only firestore \"node --test tests/firestore.rules.test.mjs\"",
+    "test:api-security": "firebase emulators:exec --only firestore \"node --import tsx --test tests/generation-security.test.ts tests/audio-source.test.ts tests/google-cloud-config.test.ts tests/webhook-security.test.ts\"",
+    "test:security": "npm run test:rules && npm run test:api-security"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
     "@tailwindcss/vite": "^4.1.14",
     "@tonconnect/ui-react": "^2.4.4",
+    "@vercel/oidc": "^3.7.1",
     "@vitejs/plugin-react": "^5.0.4",
     "body-parser": "^2.2.2",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "firebase": "^12.12.1",
     "firebase-admin": "^13.8.0",
+    "google-auth-library": "^10.9.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "react": "^19.0.0",
@@ -30,8 +35,10 @@
     "vite": "^6.2.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
+    "firebase-tools": "^15.22.3",
     "tailwindcss": "^4.1.14",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"

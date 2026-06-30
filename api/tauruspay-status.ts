@@ -1,6 +1,10 @@
+import { ApiError, sendApiError } from './_apiError.js';
 import { requireFirebaseAuth } from './_serverAuth.js';
 import { getAdminDb, adminFieldValue } from './_firebaseAdmin.js';
-import { TAURUSPAY_BASE_URL, applyTaurusPayment, taurusPayFetch } from './_taurusPay.js';
+import { enforceUserRateLimit } from './_rateLimit.js';
+import { applyTaurusPayment, taurusPayFetch } from './_taurusPay.js';
+
+const SAFE_ID = /^[a-zA-Z0-9_-]{6,160}$/;
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET' && req.method !== 'POST') {
@@ -10,8 +14,9 @@ export default async function handler(req: any, res: any) {
 
   try {
     const user = await requireFirebaseAuth(req);
+    await enforceUserRateLimit(user, 'payment-status', 10);
     const invoiceId = String(req.query?.invoiceId || req.body?.invoiceId || '').trim();
-    if (!invoiceId) return res.status(400).json({ error: 'invoiceId is required.' });
+    if (!SAFE_ID.test(invoiceId)) throw new ApiError(400, 'PAYMENT_INVOICE_INVALID', 'Invalid invoiceId.');
 
     const db = getAdminDb();
     const invoiceRef = db.collection('taurusPayInvoices').doc(invoiceId);
@@ -31,10 +36,9 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    const statusPayload = await taurusPayFetch(`${TAURUSPAY_BASE_URL}/api/payment?action=status&invoiceId=${encodeURIComponent(invoiceId)}`);
+    const statusPayload = await taurusPayFetch(`/api/payment?action=status&invoiceId=${encodeURIComponent(invoiceId)}`);
     await invoiceRef.set({
       status: statusPayload.status || invoice.status || 'pending',
-      rawStatus: statusPayload,
       updatedAt: adminFieldValue.serverTimestamp(),
     }, { merge: true });
 
@@ -51,7 +55,7 @@ export default async function handler(req: any, res: any) {
         asset: statusPayload.asset || invoice.asset,
         email: statusPayload.email || invoice.email,
         wallet: statusPayload.wallet || invoice.wallet,
-        paymentId: statusPayload.paymentId || statusPayload.id || `manual_${invoiceId}`,
+        paymentId: statusPayload.paymentId || statusPayload.id,
       });
       applied = true;
     }
@@ -64,13 +68,8 @@ export default async function handler(req: any, res: any) {
       credits: invoice.credits,
       amount: invoice.amount,
       asset: invoice.asset,
-      raw: statusPayload,
     });
-  } catch (error: any) {
-    const message = error?.message || 'Failed to check TaurusPay status.';
-    const statusCode = message.toLowerCase().includes('login') || message.toLowerCase().includes('session') ? 401 : 500;
-    if (statusCode === 401) console.warn('TaurusPay status auth required:', message);
-    else console.error('TaurusPay status API error:', error);
-    return res.status(statusCode).json({ error: message });
+  } catch (error: unknown) {
+    return sendApiError(res, error, 'TaurusPay status API failed');
   }
 }

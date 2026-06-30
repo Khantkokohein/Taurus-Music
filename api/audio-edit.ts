@@ -1,10 +1,22 @@
+import { ApiError, sendApiError } from './_apiError.js';
+import { parseTrustedAudioUrl } from './_audioSource.js';
 import { getAdminDb } from './_firebaseAdmin.js';
+import { enforceUserRateLimit } from './_rateLimit.js';
 import { requireFirebaseAuth } from './_serverAuth.js';
 
 const AUDIO_TOOLS_URL = (process.env.AUDIO_TOOLS_URL || '').replace(/\/$/, '');
 const AUDIO_TOOLS_SECRET = process.env.AUDIO_TOOLS_SECRET || '';
 const OPERATIONS = new Set(['crop', 'fade', 'split', 'export', 'selected-range-export']);
 const FORMATS = new Set(['mp3', 'wav']);
+const SONG_ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
+
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '16kb',
+    },
+  },
+};
 
 const toNumber = (value: unknown, fallback = 0) => {
   const numeric = Number(value);
@@ -19,15 +31,16 @@ export default async function handler(req: any, res: any) {
 
   try {
     if (!AUDIO_TOOLS_URL || !AUDIO_TOOLS_SECRET) {
-      throw new Error('Audio editor service is not configured.');
+      throw new ApiError(503, 'AUDIO_EDITOR_NOT_CONFIGURED', 'Audio editing is temporarily unavailable.');
     }
 
     const user = await requireFirebaseAuth(req);
+    await enforceUserRateLimit(user, 'audio-edit', 10);
     const body = req.body || {};
     const songId = String(body.songId || '').trim();
     const operation = String(body.operation || '').trim();
     const format = String(body.format || 'mp3').trim().toLowerCase();
-    if (!songId) return res.status(400).json({ error: 'songId is required.' });
+    if (!SONG_ID_PATTERN.test(songId)) return res.status(400).json({ error: 'Invalid songId.' });
     if (!OPERATIONS.has(operation)) return res.status(400).json({ error: 'Invalid audio edit operation.' });
     if (!FORMATS.has(format)) return res.status(400).json({ error: 'Invalid export format.' });
 
@@ -35,8 +48,15 @@ export default async function handler(req: any, res: any) {
     const songSnap = await db.collection('users').doc(user.uid).collection('songs').doc(songId).get();
     if (!songSnap.exists) return res.status(404).json({ error: 'Song not found.' });
     const song = songSnap.data() || {};
-    const audioUrl = String(song.audioUrl || '');
-    if (!audioUrl.startsWith('http')) return res.status(400).json({ error: 'Song audio URL is missing.' });
+    const expectedStoragePrefix = `users/${user.uid}/songs/${songId}/`;
+    if (
+      song.userId !== user.uid
+      || typeof song.storagePath !== 'string'
+      || !song.storagePath.startsWith(expectedStoragePrefix)
+    ) {
+      throw new ApiError(403, 'SONG_OWNERSHIP_INVALID', 'This song cannot be edited.');
+    }
+    const audioUrl = parseTrustedAudioUrl(song.audioUrl).toString();
 
     const response = await fetch(`${AUDIO_TOOLS_URL}/process`, {
       method: 'POST',
@@ -58,15 +78,11 @@ export default async function handler(req: any, res: any) {
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(payload.error || `Audio editor failed: ${response.status}`);
+      throw new ApiError(502, 'AUDIO_EDITOR_FAILED', 'Audio processing failed. Please try again.');
     }
 
     return res.status(200).json(payload);
-  } catch (error: any) {
-    const message = error?.message || 'Audio edit failed.';
-    const status = message.includes('login') || message.includes('session') ? 401 : 500;
-    if (status === 401) console.warn('Audio edit auth required:', message);
-    else console.error('Audio edit API error:', error);
-    return res.status(status).json({ error: message });
+  } catch (error: unknown) {
+    return sendApiError(res, error, 'Audio edit API failed');
   }
 }

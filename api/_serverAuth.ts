@@ -1,9 +1,11 @@
+import { ApiError } from './_apiError.js';
+import { getAdminAuth } from './_firebaseAdmin.js';
+
 export interface VerifiedFirebaseUser {
   uid: string;
   email?: string;
+  admin: boolean;
 }
-
-const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || 'AIzaSyDjowhLt-pq5DKd-phnS1Hwx7tdRomJCNQ';
 
 export const requireFirebaseAuth = async (req: any): Promise<VerifiedFirebaseUser> => {
   const authorization = req.headers?.authorization || req.headers?.Authorization || '';
@@ -12,22 +14,17 @@ export const requireFirebaseAuth = async (req: any): Promise<VerifiedFirebaseUse
     : '';
 
   if (!idToken) {
-    throw new Error('Please login again to use Taurus AI.');
+    throw new ApiError(401, 'AUTH_REQUIRED', 'Authentication is required.');
   }
 
-  const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_API_KEY}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idToken }),
-  });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload.users?.[0]?.localId) {
-    throw new Error('Login session expired. Please sign in again.');
+  try {
+    const decoded = await getAdminAuth().verifyIdToken(idToken, true);
+    return {
+      uid: decoded.uid,
+      email: decoded.email,
+      admin: decoded.admin === true,
+    };
+  } catch {
+    throw new ApiError(401, 'AUTH_INVALID', 'Login session expired. Please sign in again.');
   }
-
-  return {
-    uid: payload.users[0].localId,
-    email: payload.users[0].email,
-  };
 };

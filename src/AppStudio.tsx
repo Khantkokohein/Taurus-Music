@@ -1,36 +1,24 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { TonConnectButton, useTonAddress, useTonConnectModal, useTonWallet } from '@tonconnect/ui-react';
+import { TonConnectButton, useTonAddress, useTonWallet } from '@tonconnect/ui-react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, doc, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
-import { AlertCircle, CheckCircle2, Clock3, Code2, CreditCard, Download, History, Loader2, LogOut, Mic2, Music, Pause, Play, Search, Settings, Sparkles, ThumbsDown, ThumbsUp, User as UserIcon, Wallet } from 'lucide-react';
+import { AlertCircle, Clock3, Code2, CreditCard, Download, History, Loader2, LogOut, Mic2, Music, Pause, Play, Search, Settings, Sparkles, ThumbsDown, ThumbsUp, User as UserIcon, Wallet } from 'lucide-react';
 import ChallengeHub, { ChallengePage } from './components/ChallengeHub';
 import DeveloperHub from './components/DeveloperHub';
 import TaurusLandingPage from './components/TaurusLandingPage';
 import TaurusVoiceHub from './components/TaurusVoiceHub';
-import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, consumeGenerationCredit, consumeChallengeGenerationCredit, registerForChallenge, saveChallengeEntry, toggleChallengeReaction, addChallengeComment, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadVoiceProfileSample, saveVoiceProfile, uploadRemixReference, getEffectivePlanConfig, getTimestampMillis, getChallengeQuotaState, isChallengeRegistrationOpen, isChallengeCreationOpen, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, GENERATE_TWO_SONGS_COST, UserProfile, UserTier, ChallengeEntry } from './firebase';
+import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, registerForChallenge, saveChallengeEntry, toggleChallengeReaction, addChallengeComment, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadVoiceProfileSample, saveVoiceProfile, uploadRemixReference, getEffectivePlanConfig, getTimestampMillis, getChallengeQuotaState, isChallengeRegistrationOpen, isChallengeCreationOpen, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, GENERATE_TWO_SONGS_COST, UserProfile, ChallengeEntry } from './firebase';
+import { getGeneratedAudioBlob } from './lib/generatedAudio';
 
 interface Song { id: string; userId?: string; idea: string; prompt: string; audioUrl: string; storagePath?: string; mimeType?: string; lyrics: string; lyriaModel?: LyriaModelId; editorOperation?: string; instrumentTags?: string[]; voiceStrength?: string; voiceProfileId?: string; voiceProfileName?: string; remixMode?: string; remixReferencePath?: string; remixReferenceName?: string; createdAt: number; }
 interface VoiceProfile { id: string; userId?: string; name: string; sampleUrl: string; storagePath: string; contentType: string; consent: boolean; consentText: string; createdAt: number; }
-type GenerateResponse = { audioBase64: string; mimeType?: string; lyrics?: string; model?: string; };
+type GenerateResponse = { audioBase64?: string; downloadUrl?: string; mimeType?: string; lyrics?: string; model?: string; usage?: { creditCost: number; pointsRemaining: number; }; };
 type AudioEditOperation = 'crop' | 'fade' | 'split' | 'export' | 'selected-range-export';
 type AudioEditResponse = { ok: boolean; operation: AudioEditOperation; format: 'mp3' | 'wav'; outputs: Array<{ label: string; fileName: string; mimeType: string; audioBase64: string; }>; };
-type TaurusPayInvoice = {
-  invoiceId: string;
-  status: string;
-  productId: string;
-  credits: number;
-  amount: number;
-  asset: string;
-  network: string;
-  recipient: string;
-  memo: string;
-  reference: string;
-  expiresAt?: string | null;
-};
 type StudioPage = 'landing' | 'create' | 'history' | 'wallet' | 'plans' | ChallengePage;
 type StudioPanel = 'voice' | 'developers' | 'admin' | null;
 type StudioVersion = 'A' | 'B' | 'C' | 'D';
-type LyriaModelId = 'lyria-3-clip-preview' | 'lyria-3-pro-preview';
+type LyriaModelId = 'lyria-002';
 
 interface StudioRoute {
   page: StudioPage;
@@ -48,27 +36,12 @@ const LANGS = ['Burmese', 'English', 'Burmese + English'];
 const QUALITY = ['Taurus Studio', 'Taurus Apex', 'Taurus Custom'];
 const STRUCTURES = ['3:00 Studio Map', 'Rap Hook Map', 'Cinematic Build', 'Chill Loop'];
 const LYRIA_MODEL_OPTIONS: Array<{ id: LyriaModelId; label: string; note: string }> = [
-  { id: 'lyria-3-clip-preview', label: 'Lyria 3 Clip', note: '30 sec trial preview' },
-  { id: 'lyria-3-pro-preview', label: 'Lyria 3 Pro', note: 'Full song premium' },
+  { id: 'lyria-002', label: 'Lyria 2', note: '30-second instrumental WAV clip' },
 ];
 const CHALLENGE_PAGES: ChallengePage[] = ['challenge', 'challenge-rules', 'challenge-feed', 'challenge-leaderboard'];
 const STUDIO_PAGES: StudioPage[] = ['landing', 'create', 'history', 'wallet', 'plans', ...CHALLENGE_PAGES];
 const STUDIO_NAV_PAGES: StudioPage[] = ['landing', 'create', 'history', 'challenge', 'wallet', 'plans'];
 const STUDIO_PANELS: Array<Exclude<StudioPanel, null>> = ['voice', 'developers', 'admin'];
-const PACKAGES: Array<{ id: UserTier; title: string; credits: string; price: string }> = [
-  { id: 'personal', title: 'Top Up 50', credits: '50 credits / 5 creates', price: '3.75 USDT' },
-  { id: 'pro', title: 'Top Up 100', credits: '100 credits / 10 creates', price: '6.75 USDT' },
-  { id: 'prime', title: 'Top Up 300', credits: '300 credits / 30 creates', price: '17.25 USDT' },
-  { id: 'premium', title: 'Premium', credits: '150 credits / 15 creates / month', price: '12.25 USDT' },
-];
-
-const PRODUCT_BY_TIER: Partial<Record<UserTier, string>> = {
-  personal: 'credits_50',
-  pro: 'credits_100',
-  prime: 'credits_300',
-  premium: 'premium_150_month',
-};
-
 const postJson = async <T,>(url: string, body: Record<string, unknown>): Promise<T> => {
   const token = await auth.currentUser?.getIdToken();
   if (!token) throw new Error('Login with Gmail first.');
@@ -193,10 +166,6 @@ export default function AppStudio() {
   const [progress, setProgress] = useState('Ready');
   const [error, setError] = useState<string | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
-  const [tier, setTier] = useState<UserTier>('premium');
-  const [paymentWallet, setPaymentWallet] = useState('');
-  const [taurusPayInvoice, setTaurusPayInvoice] = useState<TaurusPayInvoice | null>(null);
-  const [submitting, setSubmitting] = useState(false);
   const [showVoiceHub, setShowVoiceHub] = useState(false);
   const [showDeveloperHub, setShowDeveloperHub] = useState(false);
   const [activePage, setActivePage] = useState<StudioPage>('landing');
@@ -222,7 +191,7 @@ export default function AppStudio() {
   const [singer, setSinger] = useState('Male');
   const [lang, setLang] = useState('Burmese');
   const [quality, setQuality] = useState('Taurus Studio');
-  const [lyriaModel, setLyriaModel] = useState<LyriaModelId>('lyria-3-clip-preview');
+  const [lyriaModel, setLyriaModel] = useState<LyriaModelId>('lyria-002');
   const [bpm, setBpm] = useState(120);
   const [structure, setStructure] = useState('3:00 Studio Map');
   const [editStart, setEditStart] = useState(0);
@@ -238,7 +207,6 @@ export default function AppStudio() {
   const recordingChunksRef = useRef<Blob[]>([]);
   const tonAddress = useTonAddress();
   const tonWallet = useTonWallet();
-  const tonModal = useTonConnectModal();
 
   const applyRoute = (route: StudioRoute) => {
     setActivePage(route.page);
@@ -278,23 +246,11 @@ export default function AppStudio() {
   const challengeQuota = getChallengeQuotaState(profile);
   const challengeRegistrationOpen = isChallengeRegistrationOpen();
   const challengeCreationOpen = isChallengeCreationOpen();
-  const challengeCanGenerate = challengeQuota.registered && challengeCreationOpen && challengeQuota.remaining > 0;
-  const canUseProLyria = owner || plan.id === 'premium' || challengeCanGenerate;
-  const effectiveLyriaModel: LyriaModelId = challengeCanGenerate ? 'lyria-3-pro-preview' : canUseProLyria ? lyriaModel : 'lyria-3-clip-preview';
+  const effectiveLyriaModel: LyriaModelId = lyriaModel;
   const activeLyriaOption = LYRIA_MODEL_OPTIONS.find(item => item.id === effectiveLyriaModel) || LYRIA_MODEL_OPTIONS[0];
-  const generationCountLabel = effectiveLyriaModel === 'lyria-3-clip-preview' ? '2 clips' : '2 songs';
-  const generateButtonText = challengeCanGenerate
-    ? `Generate 2 songs - Challenge ${challengeQuota.remaining} left`
-    : `Generate ${generationCountLabel} - ${GENERATE_TWO_SONGS_COST} credits`;
+  const generationCountLabel = '2 instrumental clips';
+  const generateButtonText = `Generate ${generationCountLabel} - ${GENERATE_TWO_SONGS_COST} credits`;
   const connectedWalletLabel = tonAddress ? compactWalletAddress(tonAddress) : 'Not connected';
-
-  useEffect(() => {
-    if (tonAddress) setPaymentWallet(tonAddress);
-  }, [tonAddress]);
-
-  useEffect(() => {
-    setLyriaModel(canUseProLyria ? 'lyria-3-pro-preview' : 'lyria-3-clip-preview');
-  }, [canUseProLyria]);
 
   const handleGoogleLogin = async () => {
     setError(null);
@@ -340,7 +296,7 @@ export default function AppStudio() {
     const q = query(collection(db, 'users', user.uid, 'songs'), orderBy('createdAt', 'desc'), limit(30));
     return onSnapshot(q, snap => setHistory(snap.docs.map(d => {
       const x = d.data();
-      return { id: d.id, userId: x.userId || user.uid, idea: x.idea || 'Untitled', prompt: x.prompt || '', audioUrl: x.audioUrl || '', storagePath: x.storagePath, mimeType: x.mimeType || 'audio/mpeg', lyrics: x.lyrics || '', lyriaModel: x.lyriaModel || 'lyria-3-pro-preview', editorOperation: x.editorOperation || '', instrumentTags: x.instrumentTags || [], voiceStrength: x.voiceStrength || '', voiceProfileId: x.voiceProfileId || '', voiceProfileName: x.voiceProfileName || '', remixMode: x.remixMode || '', remixReferencePath: x.remixReferencePath || '', remixReferenceName: x.remixReferenceName || '', createdAt: x.createdAt?.toMillis?.() || Date.now() } as Song;
+      return { id: d.id, userId: x.userId || user.uid, idea: x.idea || 'Untitled', prompt: x.prompt || '', audioUrl: x.audioUrl || '', storagePath: x.storagePath, mimeType: x.mimeType || 'audio/mpeg', lyrics: x.lyrics || '', lyriaModel: x.lyriaModel || 'lyria-002', editorOperation: x.editorOperation || '', instrumentTags: x.instrumentTags || [], voiceStrength: x.voiceStrength || '', voiceProfileId: x.voiceProfileId || '', voiceProfileName: x.voiceProfileName || '', remixMode: x.remixMode || '', remixReferencePath: x.remixReferencePath || '', remixReferenceName: x.remixReferenceName || '', createdAt: x.createdAt?.toMillis?.() || Date.now() } as Song;
     })));
   }, [user]);
 
@@ -592,22 +548,12 @@ export default function AppStudio() {
         setProgress('Uploading cover/remix reference...');
         remixReference = await uploadRemixReference(user.uid, `ref-${Date.now()}`, remixReferenceFile);
       }
-      const useChallengeQuota = !owner && challengeCanGenerate;
-      const modelForRun: LyriaModelId = useChallengeQuota ? 'lyria-3-pro-preview' : effectiveLyriaModel;
-      if (useChallengeQuota) {
-        setProgress('Checking challenge quota...');
-        const usage = await consumeChallengeGenerationCredit(user.uid);
-        if (!usage.allowed) throw new Error(`Challenge quota unavailable. Remaining: ${usage.remaining}.`);
-      } else {
-        setProgress(`Checking ${GENERATE_TWO_SONGS_COST} credits...`);
-        const usage = await consumeGenerationCredit(user.uid, GENERATE_TWO_SONGS_COST);
-        if (!usage.allowed) throw new Error(`Not enough credits. Remaining: ${usage.remaining}.`);
-      }
-      const clipMode = modelForRun === 'lyria-3-clip-preview';
+      const modelForRun: LyriaModelId = effectiveLyriaModel;
+      setProgress('Authorizing credits on the server...');
       const runLyriaOption = LYRIA_MODEL_OPTIONS.find(item => item.id === modelForRun) || activeLyriaOption;
       const variants: Array<{ version: StudioVersion; durationMode: 'full' | 'preview'; label: string; title: string }> = [
-        { version: 'A', durationMode: clipMode ? 'preview' : 'full', label: clipMode ? 'Lyria 3 Clip Preview A polished hook sample' : 'Lyria 3 Pro Version A polished commercial master', title: clipMode ? 'Clip Preview A' : 'Version A' },
-        { version: 'B', durationMode: clipMode ? 'preview' : 'full', label: clipMode ? 'Lyria 3 Clip Preview B deep cinematic hook sample' : 'Lyria 3 Pro Version B deep cold cinematic master', title: clipMode ? 'Clip Preview B' : 'Version B' },
+        { version: 'A', durationMode: 'preview', label: 'Lyria 2 Clip A polished hook sample', title: 'Instrumental Clip A' },
+        { version: 'B', durationMode: 'preview', label: 'Lyria 2 Clip B deep cinematic hook sample', title: 'Instrumental Clip B' },
       ];
       for (const variant of variants) {
         setProgress(`Generating ${variant.title} with ${runLyriaOption.label}...`);
@@ -643,7 +589,7 @@ export default function AppStudio() {
           lyriaModel: modelForRun,
         });
         setProgress(`Saving ${variant.title}...`);
-        const blob = audioBase64ToBlob(response.audioBase64, response.mimeType);
+        const blob = await getGeneratedAudioBlob(response);
         const id = `${Date.now()}-${variant.version}`;
         const uploaded = await uploadSongAudio(user.uid, id, blob);
         await saveSong(user.uid, { id, idea: compactTitle(idea, mood, genre, variant.title), prompt: compiled, audioUrl: uploaded.audioUrl, storagePath: uploaded.storagePath, mimeType: uploaded.mimeType, lyrics: response.lyrics || lyrics || 'Generated by Taurus Studio.', lyriaModel: (response.model as LyriaModelId) || modelForRun, instrumentTags: instruments, voiceStrength, voiceProfileId: selectedVoiceProfile?.id || '', voiceProfileName: selectedVoiceProfile?.name || '', remixMode, remixReferencePath: remixReference?.storagePath || '', remixReferenceName: remixReference?.name || '' });
@@ -653,47 +599,9 @@ export default function AppStudio() {
     finally { setIsGenerating(false); }
   };
 
-  const submitPayment = async () => {
-    if (!user) return setError('Login first.');
-    if (!PRODUCT_BY_TIER[tier]) return setError('Invalid payment plan.');
-    if (!paymentWallet.trim()) return setError('Add your Telegram/TON wallet address first.');
-    setSubmitting(true); setError(null);
-    try {
-      const invoice = await postJson<TaurusPayInvoice>('/api/tauruspay-invoice', {
-        productId: PRODUCT_BY_TIER[tier],
-        wallet: paymentWallet.trim(),
-      });
-      setTaurusPayInvoice(invoice);
-      setProgress('TaurusPay invoice created. Pay exact amount only.');
-    } catch (e: any) { setError(e.message || 'Payment failed.'); }
-    finally { setSubmitting(false); }
-  };
-
-  const checkTaurusPayStatus = async () => {
-    if (!taurusPayInvoice) return;
-    setSubmitting(true); setError(null);
-    try {
-      const status = await postJson<{ status: string; applied?: boolean }>('/api/tauruspay-status', {
-        invoiceId: taurusPayInvoice.invoiceId,
-      });
-      setTaurusPayInvoice(current => current ? { ...current, status: status.status } : current);
-      setProgress(status.applied ? 'Payment confirmed. Credits added.' : `Payment status: ${status.status}`);
-    } catch (e: any) { setError(e.message || 'Payment status check failed.'); }
-    finally { setSubmitting(false); }
-  };
-
-  const openWalletPayment = () => {
-    if (!tonAddress) {
-      tonModal.open();
-      return;
-    }
-    setPaymentWallet(tonAddress);
-    navigatePage('plans');
-  };
-
   const expiry = getTimestampMillis(profile?.subscriptionExpiresAt);
-  const walletPanel = <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-2xl font-bold"><Wallet className="mr-2 inline h-5 w-5"/>Wallet</h3><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Credits</p><p className="mt-1 text-2xl font-bold">{credits}</p></div><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Free month</p><p className="mt-1 text-2xl font-bold">{daily}</p></div></div>{expiry>0 && <p className="mt-2 text-xs text-zinc-500">Expires {formatDate(expiry)}</p>}<div className="mt-5 rounded-3xl border border-[#D4A94533] bg-[#D4A9450d] p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.24em] text-[#D4A945]">TON Wallet</p><p className="mt-2 font-black text-white">{tonWallet ? 'Connected' : 'Connect required'}</p><p className="mt-1 break-all font-mono text-xs text-zinc-400">{tonAddress || 'Telegram Wallet / TON wallet not connected.'}</p></div><span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase ${tonAddress ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/10 text-zinc-400'}`}>{connectedWalletLabel}</span></div><div className="mt-4 flex flex-col gap-3"><TonConnectButton className="ton-connect-button"/><button onClick={openWalletPayment} className="rounded-2xl bg-[#D4A945] px-4 py-3 text-sm font-black text-black transition-colors hover:bg-[#e6bd5b]">{tonAddress ? 'Use Wallet for TaurusPay' : 'Connect Wallet'}</button></div></div></div>;
-  const plansPanel = <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-xl font-bold"><CreditCard className="mr-2 inline h-5 w-5"/>TaurusPay</h3><p className="mt-2 text-sm text-zinc-400">USDT on TON. Exact amount only. Underpay fails, overpay goes to manual review.</p><div className="mt-4 rounded-3xl border border-white/10 bg-black/20 p-4 text-sm"><div className="flex items-center justify-between gap-3"><div><p className="font-semibold text-zinc-200">Connected wallet</p><p className="mt-1 break-all font-mono text-xs text-zinc-500">{tonAddress || 'Not connected yet'}</p></div><span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase ${tonAddress ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/10 text-zinc-400'}`}>{connectedWalletLabel}</span></div><div className="mt-3"><TonConnectButton className="ton-connect-button"/></div></div><div className="mt-4 grid gap-3">{PACKAGES.map(p => <button key={p.id} onClick={() => { setTier(p.id); setTaurusPayInvoice(null); }} className={`rounded-3xl border p-4 text-left ${tier===p.id?'border-[#D4A945] bg-[#D4A94514]':'border-white/10 bg-black/20'}`}><div className="flex justify-between gap-3"><p className="font-semibold">{p.title}</p><p>{p.price}</p></div><p className="text-sm text-zinc-400">{p.credits}</p></button>)}</div><label className="mt-4 block rounded-3xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-300"><span className="mb-2 block font-semibold">Your Telegram / TON wallet</span><input value={paymentWallet} onChange={e => setPaymentWallet(e.target.value)} placeholder="UQ... wallet address" className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none focus:border-[#D4A94588]"/></label><button onClick={submitPayment} disabled={!user || submitting} className="mt-4 w-full rounded-3xl bg-[#D4A945] px-5 py-3 font-black text-black disabled:opacity-50">{submitting ? <Loader2 className="mr-2 inline h-4 w-4 animate-spin"/> : <CheckCircle2 className="mr-2 inline h-4 w-4"/>}Create TaurusPay Invoice</button>{taurusPayInvoice && <div className="mt-4 rounded-3xl border border-[#D4A94533] bg-[#D4A9450d] p-4 text-sm"><p className="font-black text-[#D4A945]">Invoice {taurusPayInvoice.status}</p><div className="mt-3 space-y-2 text-zinc-300"><p>Network: {taurusPayInvoice.network}</p><p>Asset: {taurusPayInvoice.asset}</p><p>Amount: {taurusPayInvoice.amount} {taurusPayInvoice.asset}</p><p className="break-all">Recipient: {taurusPayInvoice.recipient}</p><p className="break-all">Memo: {taurusPayInvoice.memo || taurusPayInvoice.reference}</p></div><button onClick={checkTaurusPayStatus} disabled={submitting} className="mt-4 w-full rounded-2xl border border-[#D4A94555] px-4 py-3 font-black text-[#D4A945] disabled:opacity-50">Check Payment Status</button></div>}</div>;
+  const walletPanel = <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-2xl font-bold"><Wallet className="mr-2 inline h-5 w-5"/>Wallet</h3><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Credits</p><p className="mt-1 text-2xl font-bold">{credits}</p></div><div className="rounded-3xl bg-black/25 p-4"><p className="text-xs text-zinc-500">Free month</p><p className="mt-1 text-2xl font-bold">{daily}</p></div></div>{expiry>0 && <p className="mt-2 text-xs text-zinc-500">Expires {formatDate(expiry)}</p>}<div className="mt-5 rounded-3xl border border-[#D4A94533] bg-[#D4A9450d] p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.24em] text-[#D4A945]">TON Wallet</p><p className="mt-2 font-black text-white">{tonWallet ? 'Connected, not verified' : 'Connect optional'}</p><p className="mt-1 break-all font-mono text-xs text-zinc-400">{tonAddress || 'Telegram Wallet / TON wallet not connected.'}</p></div><span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase ${tonAddress ? 'bg-amber-500/15 text-amber-300' : 'bg-white/10 text-zinc-400'}`}>{connectedWalletLabel}</span></div><div className="mt-4"><TonConnectButton className="ton-connect-button"/></div><p className="mt-3 text-xs leading-5 text-zinc-500">Wallet connection does not prove ownership yet. Payments remain disabled until TON proof verification and plan pricing are approved.</p></div></div>;
+  const plansPanel = <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6"><h3 className="text-xl font-bold"><CreditCard className="mr-2 inline h-5 w-5"/>Paid Plans</h3><p className="mt-2 text-sm leading-6 text-zinc-400">Telegram Stars, TON, and USDT pricing will be configured after the secure generation flow is verified. Payments and invoice creation are currently disabled.</p><div className="mt-5 rounded-3xl border border-amber-400/20 bg-amber-400/[0.06] p-4 text-sm text-amber-100"><p className="font-black">No payment is requested now.</p><p className="mt-2 leading-6 text-amber-100/70">Do not send TON, USDT, wallet seed phrases, private keys, screenshots, or bot tokens. Official plans and terms will appear here only after approval.</p></div><div className="mt-4"><TonConnectButton className="ton-connect-button"/></div></div>;
   const editorNumberInput = (label: string, value: number, set: (value: number) => void) => <label className="block"><span className="mb-1 block text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">{label}</span><input type="number" min="0" step="0.1" value={value} onChange={e => set(Math.max(Number(e.target.value) || 0, 0))} className="w-full rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-sm outline-none focus:border-[#D4A94588]"/></label>;
   const editorButton = (operation: AudioEditOperation, label: string) => <button onClick={() => runAudioEdit(operation)} disabled={!currentSong || !!editingOperation} className="rounded-2xl border border-[#D4A94555] bg-transparent px-3 py-3 text-sm font-black text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black disabled:cursor-not-allowed disabled:opacity-45">{editingOperation === operation ? <Loader2 className="mr-2 inline h-4 w-4 animate-spin"/> : null}{label}</button>;
   const editorPanel = <div className="rounded-[2rem] border border-white/10 bg-[#11100d]/95 p-6 shadow-2xl shadow-black/30"><h3 className="text-xl font-black"><Settings className="mr-2 inline h-5 w-5 text-[#D4A945]"/>Studio Editor</h3><p className="mt-2 text-sm leading-6 text-zinc-400">{currentSong ? currentSong.idea : 'Play a song from History first, then edit it here.'}</p><div className="mt-5 grid grid-cols-2 gap-3">{editorNumberInput('Start sec', editStart, setEditStart)}{editorNumberInput('End sec', editEnd, setEditEnd)}{editorNumberInput('Split at', splitAt, setSplitAt)}<label className="block"><span className="mb-1 block text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Format</span><select value={editFormat} onChange={e => setEditFormat(e.target.value as 'mp3' | 'wav')} className="w-full rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-sm outline-none focus:border-[#D4A94588]"><option value="mp3">MP3</option><option value="wav">WAV</option></select></label>{editorNumberInput('Fade in', fadeIn, setFadeIn)}{editorNumberInput('Fade out', fadeOut, setFadeOut)}</div><div className="mt-5 grid grid-cols-2 gap-2">{editorButton('crop', 'Crop')}{editorButton('selected-range-export', 'Range Export')}{editorButton('fade', 'Fade In/Out')}{editorButton('split', 'Split')}{editorButton('export', `Export ${editFormat.toUpperCase()}`)}</div><p className="mt-4 text-xs leading-5 text-zinc-500">FFmpeg runs on Google Cloud Run. Results are saved back into History as new files.</p></div>;
@@ -767,12 +675,11 @@ export default function AppStudio() {
                   <h3 className="mb-5 text-lg font-black">Sound DNA</h3>
                   <div className="space-y-5">
                     <div>
-                      <p className="mb-2 text-sm font-bold text-zinc-300">Lyria 3 Model</p>
-                      <div className="grid gap-2 sm:grid-cols-2">
+                      <p className="mb-2 text-sm font-bold text-zinc-300">Google Lyria Model</p>
+                      <div className="grid gap-2 sm:grid-cols-1">
                         {LYRIA_MODEL_OPTIONS.map(option => {
-                          const locked = option.id === 'lyria-3-pro-preview' && !canUseProLyria;
                           const active = effectiveLyriaModel === option.id;
-                          return <button key={option.id} disabled={locked} onClick={() => setLyriaModel(option.id)} className={`rounded-2xl border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${active ? 'border-[#D4A945] bg-[#D4A945] text-black' : 'border-white/10 bg-white/[0.04] text-zinc-300 hover:border-[#D4A94555]'}`}><span className="block text-sm font-black">{option.label}</span><span className={`mt-1 block text-xs ${active ? 'text-black/70' : 'text-zinc-500'}`}>{locked ? 'Premium / Owner only' : option.note}</span></button>;
+                          return <button key={option.id} onClick={() => setLyriaModel(option.id)} className={`rounded-2xl border px-4 py-3 text-left transition-colors ${active ? 'border-[#D4A945] bg-[#D4A945] text-black' : 'border-white/10 bg-white/[0.04] text-zinc-300 hover:border-[#D4A94555]'}`}><span className="block text-sm font-black">{option.label}</span><span className={`mt-1 block text-xs ${active ? 'text-black/70' : 'text-zinc-500'}`}>{option.note}</span></button>;
                         })}
                       </div>
                     </div>

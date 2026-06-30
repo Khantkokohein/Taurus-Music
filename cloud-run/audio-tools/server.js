@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
+import dns from 'node:dns/promises';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -15,6 +17,12 @@ const MAX_DOWNLOAD_BYTES = 80 * 1024 * 1024;
 const MAX_RANGE_SECONDS = 12 * 60;
 const FORMATS = new Set(['mp3', 'wav']);
 const OPERATIONS = new Set(['crop', 'fade', 'split', 'export', 'selected-range-export']);
+const ALLOWED_AUDIO_HOSTS = new Set(
+  (process.env.AUDIO_SOURCE_HOSTS || 'firebasestorage.googleapis.com,storage.googleapis.com')
+    .split(',')
+    .map(value => value.trim().toLowerCase())
+    .filter(Boolean),
+);
 
 app.use(express.json({ limit: '1mb' }));
 
@@ -32,6 +40,66 @@ const outputCodecArgs = (format) => (
 );
 
 const outputMimeType = (format) => (format === 'wav' ? 'audio/wav' : 'audio/mpeg');
+
+const requestError = (message, statusCode = 400) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
+const isPrivateAddress = (address) => {
+  const version = net.isIP(address);
+  if (version === 4) {
+    const [a, b] = address.split('.').map(Number);
+    return a === 0
+      || a === 10
+      || a === 127
+      || (a === 100 && b >= 64 && b <= 127)
+      || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && (b === 0 || b === 168))
+      || (a === 198 && (b === 18 || b === 19 || b === 51))
+      || (a === 203 && b === 0)
+      || a >= 224;
+  }
+  if (version === 6) {
+    const normalized = address.toLowerCase();
+    if (normalized.startsWith('::ffff:')) {
+      return isPrivateAddress(normalized.slice('::ffff:'.length));
+    }
+    return normalized === '::'
+      || normalized === '::1'
+      || normalized.startsWith('fc')
+      || normalized.startsWith('fd')
+      || /^fe[89ab]/.test(normalized)
+      || normalized.startsWith('2001:db8:')
+      || normalized.startsWith('ff');
+  }
+  return true;
+};
+
+export const assertTrustedRemoteAudioUrl = async (value) => {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw requestError('Invalid audio URL.');
+  }
+  if (
+    url.protocol !== 'https:'
+    || !ALLOWED_AUDIO_HOSTS.has(url.hostname.toLowerCase())
+    || url.username
+    || url.password
+  ) {
+    throw requestError('Audio URL host is not allowed.');
+  }
+
+  const addresses = await dns.lookup(url.hostname, { all: true, verbatim: true });
+  if (addresses.length === 0 || addresses.some(({ address }) => isPrivateAddress(address))) {
+    throw requestError('Audio URL resolved to a blocked network.');
+  }
+  return url;
+};
 
 const run = (command, args) => new Promise((resolve, reject) => {
   const child = spawn(command, args, { stdio: ['ignore', 'ignore', 'pipe'] });
@@ -68,10 +136,24 @@ const probeDuration = async (filePath) => {
 };
 
 const downloadAudio = async (audioUrl, targetPath) => {
-  const url = new URL(audioUrl);
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('Invalid audio URL.');
-  const response = await fetch(url);
+  const url = await assertTrustedRemoteAudioUrl(audioUrl);
+  const response = await fetch(url, {
+    redirect: 'manual',
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (response.status >= 300 && response.status < 400) {
+    throw requestError('Audio download redirects are not allowed.');
+  }
   if (!response.ok || !response.body) throw new Error(`Audio download failed: ${response.status}`);
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  if (
+    contentType
+    && !contentType.startsWith('audio/')
+    && contentType !== 'application/octet-stream'
+    && contentType !== 'binary/octet-stream'
+  ) {
+    throw requestError('Remote file is not an audio resource.');
+  }
   const length = Number(response.headers.get('content-length') || 0);
   if (length > MAX_DOWNLOAD_BYTES) throw new Error('Audio file is too large for editor processing.');
   let downloaded = 0;
@@ -93,12 +175,15 @@ const encodeOutput = async (filePath, label, format) => ({
 });
 
 const assertSecret = (req) => {
-  if (!AUDIO_TOOLS_SECRET) throw new Error('AUDIO_TOOLS_SECRET is not configured.');
-  const received = req.headers['x-taurus-audio-secret'];
-  if (received !== AUDIO_TOOLS_SECRET) {
-    const error = new Error('Unauthorized audio tools request.');
-    error.statusCode = 401;
-    throw error;
+  if (!AUDIO_TOOLS_SECRET) throw requestError('Audio tools service is not configured.', 503);
+  const received = String(req.headers['x-taurus-audio-secret'] || '');
+  const expectedBuffer = Buffer.from(AUDIO_TOOLS_SECRET);
+  const receivedBuffer = Buffer.from(received);
+  if (
+    expectedBuffer.length !== receivedBuffer.length
+    || !crypto.timingSafeEqual(expectedBuffer, receivedBuffer)
+  ) {
+    throw requestError('Unauthorized audio tools request.', 401);
   }
 };
 
@@ -174,7 +259,12 @@ app.post('/process', async (req, res) => {
     res.json({ ok: true, operation, format, outputs });
   } catch (error) {
     const statusCode = error.statusCode || 500;
-    res.status(statusCode).json({ error: error.message || 'Audio processing failed.' });
+    if (statusCode >= 500) {
+      console.error('Audio processing failed:', { name: error?.name || 'Error', statusCode });
+    }
+    res.status(statusCode).json({
+      error: statusCode < 500 ? (error.message || 'Audio processing failed.') : 'Audio processing failed.',
+    });
   } finally {
     if (tempDir) await fsp.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }

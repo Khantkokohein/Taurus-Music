@@ -21,10 +21,7 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && (
-        request.auth.token.email == 'koheinkhantko51@gmail.com' ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
-      );
+      return isSignedIn() && request.auth.token.get('admin', false) == true;
     }
 
     function isValidId(id) {
@@ -47,77 +44,20 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
-    function immutableUserFieldsValid() {
-      return incoming().uid == existing().uid
-        && incoming().role == existing().role
-        && incoming().email == existing().email
-        && incoming().credits == existing().credits
-        && incoming().tier == existing().tier
-        && (!('taurusId' in existing()) || incoming().taurusId == existing().taurusId)
-        && (!('taurusNumber' in existing()) || incoming().taurusNumber == existing().taurusNumber)
-        && (!('taurusCoinBalance' in existing()) || incoming().taurusCoinBalance == existing().taurusCoinBalance)
-        && (!('songCreditBalance' in existing()) || incoming().songCreditBalance == existing().songCreditBalance)
-        && (!('apiAccessEnabled' in existing()) || incoming().apiAccessEnabled == existing().apiAccessEnabled);
+    function isOwnerProfileUpdate(userId) {
+      return isOwner(userId)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName'])
+        && incoming().displayName is string
+        && incoming().displayName.size() <= 80;
     }
 
-    function isOwnerUsageUpdate(userId) {
-      return isOwner(userId)
-        && immutableUserFieldsValid()
-        && incoming().diff(existing()).affectedKeys().hasOnly([
-          'displayName',
-          'dailyGenerationCount',
-          'lastGenerationDate',
-          'pendingPayment',
-          'requestedTier',
-          'paymentStatus',
-          'paymentProofUrl',
-          'paymentProofPath',
-          'paymentProofName',
-          'paymentSubmittedAt',
-          'paymentRejectedAt',
-          'paymentRejectReason',
-          'songsUsedThisWeek',
-          'songsUsedThisMonth',
-          'lastRefillDate',
-          'lastMonthlyRefillDate',
-          'weeklyLimit',
-          'monthlyLimit',
-          'points',
-          'lastPointGrantDate',
-          'totalPointsEarned',
-          'taurusId',
-          'taurusNumber',
-          'taurusCoinBalance',
-          'songCreditBalance',
-          'apiAccessEnabled',
-          'challengeRegistered',
-          'challengeRegisteredAt',
-          'challengeGenerateLimit',
-          'challengeGenerateUsed',
-          'challengeEntryId'
-        ])
-        && (!('taurusId' in incoming()) || isValidTaurusAccountCode(incoming().taurusId))
-        && (!('taurusNumber' in incoming()) || incoming().taurusNumber == incoming().taurusId)
-        && (!('taurusCoinBalance' in incoming()) || ('taurusCoinBalance' in existing()) || incoming().taurusCoinBalance == 0)
-        && (!('songCreditBalance' in incoming()) || ('songCreditBalance' in existing()) || incoming().songCreditBalance == 0)
-        && (!('apiAccessEnabled' in incoming()) || ('apiAccessEnabled' in existing()) || incoming().apiAccessEnabled == true);
-    }
-
-    function isOwnerChatBanUpdate(userId) {
-      return isOwner(userId)
-        && immutableUserFieldsValid()
-        && incoming().diff(existing()).affectedKeys().hasOnly([
-          'chatBannedUntil',
-          'chatBanReason',
-          'chatBannedAt',
-          'chatLastViolation',
-          'chatLastViolationAt',
-          'chatBanCount',
-          'chatViolationCount'
-        ])
-        && (!('chatBannedUntil' in incoming())
-          || incoming().chatBannedUntil == null
-          || incoming().chatBannedUntil is timestamp);
+    function isTrustedAudioUrl(value) {
+      return value is string
+        && value.size() < 1000
+        && (
+          value.matches('^https://firebasestorage\\.googleapis\\.com/.*$')
+          || value.matches('^https://storage\\.googleapis\\.com/.*$')
+        );
     }
 
     function isChatAllowed() {
@@ -160,7 +100,7 @@ service cloud.firestore {
         && (!('isSongShare' in incoming()) || incoming().isSongShare == true)
         && (!('songId' in incoming()) || isValidId(incoming().songId))
         && (!('songTitle' in incoming()) || (incoming().songTitle is string && incoming().songTitle.size() <= 160))
-        && (!('songUrl' in incoming()) || (incoming().songUrl is string && incoming().songUrl.size() < 1000))
+        && (!('songUrl' in incoming()) || isTrustedAudioUrl(incoming().songUrl))
         && (!('songMimeType' in incoming()) || (incoming().songMimeType is string && incoming().songMimeType.size() <= 80));
     }
 
@@ -197,8 +137,7 @@ service cloud.firestore {
         && incoming().title.size() <= 160
         && incoming().prompt is string
         && incoming().prompt.size() <= 1500
-        && incoming().audioUrl is string
-        && incoming().audioUrl.size() < 1000
+        && isTrustedAudioUrl(incoming().audioUrl)
         && incoming().mimeType is string
         && incoming().mimeType.size() <= 80
         && incoming().lyrics is string
@@ -274,8 +213,7 @@ service cloud.firestore {
         && incoming().title.size() <= 160
         && incoming().prompt is string
         && incoming().prompt.size() <= 1500
-        && incoming().audioUrl is string
-        && incoming().audioUrl.size() < 1000
+        && isTrustedAudioUrl(incoming().audioUrl)
         && incoming().mimeType is string
         && incoming().mimeType.size() <= 80
         && incoming().lyrics is string
@@ -463,7 +401,7 @@ service cloud.firestore {
         && (!('taurusNumber' in incoming()) || incoming().taurusNumber == incoming().taurusId)
         && (!('taurusCoinBalance' in incoming()) || incoming().taurusCoinBalance == 0)
         && (!('songCreditBalance' in incoming()) || incoming().songCreditBalance == 0)
-        && (!('apiAccessEnabled' in incoming()) || incoming().apiAccessEnabled == true)
+        && (!('apiAccessEnabled' in incoming()) || incoming().apiAccessEnabled == false)
         && incoming().dailyGenerationCount == 0
         && incoming().credits == 0
         && incoming().points == 60
@@ -473,16 +411,14 @@ service cloud.firestore {
         && incoming().songsUsedThisWeek == 0
         && incoming().monthlyLimit == 60
         && incoming().songsUsedThisMonth == 0
-        && (incoming().role == 'user' || (incoming().role == 'admin' && request.auth.token.email == 'koheinkhantko51@gmail.com'));
-      allow update: if isAdmin() || isOwnerUsageUpdate(userId) || isOwnerChatBanUpdate(userId);
+        && incoming().role == 'user';
+      allow update: if isAdmin() || isOwnerProfileUpdate(userId);
     }
 
     // Developer API keys
     match /users/{userId}/apiKeys/{apiKeyId} {
       allow list, get: if isOwner(userId) || isAdmin();
-      allow create: if isDeveloperApiKeyCreate(userId);
-      allow update: if isAdmin() || isDeveloperApiKeyUpdate(userId);
-      allow delete: if isOwner(userId) || isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
     // User-owned voice profiles
@@ -519,9 +455,11 @@ service cloud.firestore {
     // Taurus Studio Challenge
     match /challengeRegistrations/{userId} {
       allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      allow create, update: if isOwner(userId)
+      allow create: if isOwner(userId)
         && isChatAllowed()
-        && isValidChallengeRegistration(userId);
+        && isValidChallengeRegistration(userId)
+        && incoming().generateUsed == 0;
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
@@ -531,9 +469,7 @@ service cloud.firestore {
         && isChatAllowed()
         && entryId == request.auth.uid
         && isValidChallengeEntry();
-      allow update: if isSignedIn()
-        && isChatAllowed()
-        && isChallengeCounterUpdate();
+      allow update: if isAdmin();
       allow delete: if isAdmin();
 
       match /reactions/{userId} {
@@ -572,8 +508,9 @@ service cloud.firestore {
         && isChatAllowed()
         && isValidId(songId)
         && incoming().userId == request.auth.uid
-        && incoming().audioUrl is string
-        && incoming().audioUrl.size() < 1000
+        && isTrustedAudioUrl(incoming().audioUrl)
+        && incoming().storagePath is string
+        && incoming().storagePath.matches('^users/' + userId + '/songs/' + songId + '/.*$')
         && incoming().createdAt == request.time;
       allow delete: if isOwner(userId);
     }

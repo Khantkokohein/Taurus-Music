@@ -1,13 +1,9 @@
-import { getAdminDb, adminFieldValue, adminTimestamp } from './_firebaseAdmin.js';
+import { ApiError } from './_apiError.js';
+import { adminFieldValue, adminTimestamp, getAdminDb } from './_firebaseAdmin.js';
 
 export type TaurusProductId = 'credits_50' | 'credits_100' | 'credits_300' | 'premium_150_month';
 
-export const TAURUS_SERVICE = 'taurus_studio_music';
-export const TAURUSPAY_BASE_URL = process.env.TAURUSPAY_BASE_URL || 'https://tauruspay.site';
-export const TAURUSPAY_RECIPIENT = process.env.TAURUSPAY_USDT_ADDRESS || '';
-export const CALLBACK_URL = process.env.TAURUSPAY_CALLBACK_URL || 'https://taurus-music.vercel.app/api/tauruspay-webhook';
-
-export const PRODUCT_MAP: Record<TaurusProductId, {
+type TaurusProduct = {
   id: TaurusProductId;
   amount: number;
   asset: 'USDT';
@@ -15,50 +11,136 @@ export const PRODUCT_MAP: Record<TaurusProductId, {
   type: 'credits' | 'premium';
   plan: '' | 'premium';
   tier?: 'premium';
-}> = {
-  credits_50: { id: 'credits_50', amount: 3.75, asset: 'USDT', credits: 50, type: 'credits', plan: '' },
-  credits_100: { id: 'credits_100', amount: 6.75, asset: 'USDT', credits: 100, type: 'credits', plan: '' },
-  credits_300: { id: 'credits_300', amount: 17.25, asset: 'USDT', credits: 300, type: 'credits', plan: '' },
-  premium_150_month: { id: 'premium_150_month', amount: 12.25, asset: 'USDT', credits: 150, type: 'premium', plan: 'premium', tier: 'premium' },
+};
+
+export const TAURUS_SERVICE = 'taurus_studio_music';
+const SAFE_ID = /^[a-zA-Z0-9_-]{6,160}$/;
+const KNOWN_PRODUCT_IDS = new Set<TaurusProductId>([
+  'credits_50',
+  'credits_100',
+  'credits_300',
+  'premium_150_month',
+]);
+
+export const assertPaymentsEnabled = () => {
+  if (process.env.PAYMENTS_ENABLED !== 'true') {
+    throw new ApiError(503, 'PAYMENTS_DISABLED', 'Payments are not available yet.');
+  }
+};
+
+const httpsUrl = (name: string) => {
+  const value = String(process.env[name] || '').trim();
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new ApiError(503, 'PAYMENT_CONFIG_INVALID', 'Payment service is not configured.');
+  }
+  if (url.protocol !== 'https:' || url.username || url.password) {
+    throw new ApiError(503, 'PAYMENT_CONFIG_INVALID', 'Payment service is not configured.');
+  }
+  return url;
+};
+
+export const getTaurusPayConfig = () => {
+  assertPaymentsEnabled();
+  const recipient = String(process.env.TAURUSPAY_USDT_ADDRESS || '').trim();
+  if (!recipient) {
+    throw new ApiError(503, 'PAYMENT_CONFIG_INVALID', 'Payment service is not configured.');
+  }
+  return {
+    baseUrl: httpsUrl('TAURUSPAY_BASE_URL'),
+    callbackUrl: httpsUrl('TAURUSPAY_CALLBACK_URL'),
+    recipient,
+  };
+};
+
+const readProducts = (): Record<string, TaurusProduct> => {
+  assertPaymentsEnabled();
+  const raw = String(process.env.TAURUSPAY_PRODUCTS_JSON || '').trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new ApiError(503, 'PAYMENT_PRODUCTS_NOT_CONFIGURED', 'Payment plans are not configured yet.');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new ApiError(503, 'PAYMENT_PRODUCTS_NOT_CONFIGURED', 'Payment plans are not configured yet.');
+  }
+
+  const products: Record<string, TaurusProduct> = {};
+  for (const [id, value] of Object.entries(parsed as Record<string, any>)) {
+    if (!KNOWN_PRODUCT_IDS.has(id as TaurusProductId)) continue;
+    const amount = Number(value?.amount);
+    const credits = Number(value?.credits);
+    const type = value?.type === 'premium' ? 'premium' : 'credits';
+    if (
+      !Number.isFinite(amount)
+      || amount <= 0
+      || !Number.isInteger(credits)
+      || credits <= 0
+      || credits > 100_000
+      || value?.asset !== 'USDT'
+    ) {
+      throw new ApiError(503, 'PAYMENT_PRODUCTS_INVALID', 'Payment plans are not configured correctly.');
+    }
+    products[id] = {
+      id: id as TaurusProductId,
+      amount,
+      asset: 'USDT',
+      credits,
+      type,
+      plan: type === 'premium' ? 'premium' : '',
+      ...(type === 'premium' ? { tier: 'premium' as const } : {}),
+    };
+  }
+  return products;
 };
 
 export const getProduct = (productId: string) => {
-  const product = PRODUCT_MAP[productId as TaurusProductId];
-  if (!product) throw new Error('Invalid TaurusPay product.');
+  const product = readProducts()[productId];
+  if (!product) throw new ApiError(400, 'PAYMENT_PRODUCT_INVALID', 'Invalid payment product.');
   return product;
 };
 
-export const assertExactPayment = (payload: any, product = getProduct(payload?.productId || '')) => {
-  if (payload?.service !== TAURUS_SERVICE) throw new Error('Wrong payment service.');
-  if (payload?.status !== 'completed') throw new Error('Payment is not completed.');
-  if (payload?.asset !== product.asset) throw new Error('Wrong payment asset.');
-  const paidAmount = Number(payload?.amount);
-  if (paidAmount < product.amount) throw new Error('underpay_exact_amount_required');
-  if (paidAmount > product.amount) throw new Error('overpay_manual_review');
-  if (paidAmount !== product.amount) throw new Error('Payment amount mismatch.');
-  if (payload?.type !== product.type) throw new Error('Payment type mismatch.');
-  if (Number(payload?.credits) !== product.credits) throw new Error('Payment credits mismatch.');
+const usdtMicros = (value: unknown) => {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.round(amount * 1_000_000) : -1;
 };
 
-export const taurusPayFetch = async (url: string, init?: RequestInit) => {
-  const apiKey = process.env.TAURUSPAY_API_KEY || '';
-  if (!apiKey) throw new Error('TAURUSPAY_API_KEY is not configured.');
+export const assertExactPayment = (payload: any, product = getProduct(payload?.productId || '')) => {
+  if (payload?.service !== TAURUS_SERVICE) throw new ApiError(400, 'PAYMENT_SERVICE_MISMATCH', 'Wrong payment service.');
+  if (payload?.status !== 'completed') throw new ApiError(409, 'PAYMENT_NOT_COMPLETED', 'Payment is not completed.');
+  if (payload?.asset !== product.asset) throw new ApiError(400, 'PAYMENT_ASSET_MISMATCH', 'Wrong payment asset.');
+  if (usdtMicros(payload?.amount) !== usdtMicros(product.amount)) {
+    throw new ApiError(400, 'PAYMENT_AMOUNT_MISMATCH', 'Payment amount does not match the invoice.');
+  }
+  if (payload?.type !== product.type) throw new ApiError(400, 'PAYMENT_TYPE_MISMATCH', 'Payment type does not match.');
+  if (Number(payload?.credits) !== product.credits) throw new ApiError(400, 'PAYMENT_CREDITS_MISMATCH', 'Payment credits do not match.');
+};
+
+export const taurusPayFetch = async (path: string, init?: RequestInit) => {
+  const config = getTaurusPayConfig();
+  const apiKey = String(process.env.TAURUSPAY_API_KEY || '');
+  if (!apiKey) throw new ApiError(503, 'PAYMENT_CONFIG_INVALID', 'Payment service is not configured.');
+  const url = new URL(path, config.baseUrl);
+  if (url.origin !== config.baseUrl.origin) {
+    throw new ApiError(500, 'PAYMENT_URL_BLOCKED', 'Payment request was blocked.', false);
+  }
 
   const response = await fetch(url, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
-      'x-taurus-api-key': apiKey,
       ...(init?.headers || {}),
     },
+    signal: AbortSignal.timeout(15_000),
   });
-
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error || `TaurusPay request failed: ${response.status}`);
+    throw new ApiError(502, 'PAYMENT_PROVIDER_FAILED', 'Payment provider request failed.');
   }
-
   return payload;
 };
 
@@ -69,41 +151,38 @@ export const applyTaurusPayment = async (payload: any) => {
   const db = getAdminDb();
   const invoiceId = String(payload.invoiceId || '');
   const paymentId = String(payload.paymentId || '');
-  if (!invoiceId || !paymentId) throw new Error('Missing payment identifiers.');
+  if (!SAFE_ID.test(invoiceId) || !SAFE_ID.test(paymentId)) {
+    throw new ApiError(400, 'PAYMENT_IDENTIFIERS_INVALID', 'Payment identifiers are invalid.');
+  }
 
   const invoiceRef = db.collection('taurusPayInvoices').doc(invoiceId);
   const paymentRef = db.collection('taurusPayPayments').doc(paymentId);
 
   return db.runTransaction(async (transaction) => {
-    const invoiceSnap = await transaction.get(invoiceRef);
-    if (!invoiceSnap.exists) {
-      throw new Error('Invoice not found.');
-    }
+    const [invoiceSnap, paymentSnap] = await Promise.all([
+      transaction.get(invoiceRef),
+      transaction.get(paymentRef),
+    ]);
+    if (!invoiceSnap.exists) throw new ApiError(404, 'PAYMENT_INVOICE_NOT_FOUND', 'Invoice not found.');
 
     const invoice = invoiceSnap.data() || {};
-    const paymentSnap = await transaction.get(paymentRef);
     if (invoice.status === 'completed') {
       if (invoice.paymentId === paymentId || paymentSnap.exists) {
         return { userId: invoice.userId, credits: product.credits, plan: product.plan, invoiceId, paymentId, alreadyApplied: true };
       }
-      throw new Error('Invoice already completed.');
+      throw new ApiError(409, 'PAYMENT_INVOICE_ALREADY_USED', 'Invoice was already completed.');
     }
-    if (paymentSnap.exists) {
-      throw new Error('Duplicate payment.');
-    }
-    if (invoice.productId !== product.id) throw new Error('Invoice product mismatch.');
-    if (invoice.email !== payload.email) throw new Error('Invoice email mismatch.');
-    if (Number(invoice.amount) !== product.amount) throw new Error('Invoice amount mismatch.');
-    if (invoice.asset !== product.asset) throw new Error('Invoice asset mismatch.');
+    if (paymentSnap.exists) throw new ApiError(409, 'PAYMENT_DUPLICATE', 'Duplicate payment.');
+    if (invoice.productId !== product.id) throw new ApiError(400, 'PAYMENT_PRODUCT_MISMATCH', 'Invoice product does not match.');
+    if (usdtMicros(invoice.amount) !== usdtMicros(product.amount)) throw new ApiError(400, 'PAYMENT_AMOUNT_MISMATCH', 'Invoice amount does not match.');
+    if (invoice.asset !== product.asset) throw new ApiError(400, 'PAYMENT_ASSET_MISMATCH', 'Invoice asset does not match.');
 
     const userId = String(invoice.userId || '');
-    if (!userId) throw new Error('Invoice user missing.');
-
+    if (!userId) throw new ApiError(400, 'PAYMENT_USER_MISSING', 'Invoice user is missing.');
     const userRef = db.collection('users').doc(userId);
     const userSnap = await transaction.get(userRef);
-    if (!userSnap.exists) throw new Error('User not found.');
+    if (!userSnap.exists) throw new ApiError(404, 'PAYMENT_USER_NOT_FOUND', 'User not found.');
     const user = userSnap.data() || {};
-
     const now = adminTimestamp.now();
     const updates: Record<string, any> = {
       monthlyLimit: Number(user.monthlyLimit || 0) + product.credits,
@@ -126,39 +205,37 @@ export const applyTaurusPayment = async (payload: any) => {
       updates.subscriptionPlanName = 'Premium';
     }
 
-    transaction.set(paymentRef, {
-      ...payload,
+    const paymentRecord = {
+      provider: 'tauruspay',
+      invoiceId,
+      paymentId,
       productId: product.id,
       userId,
+      amount: product.amount,
+      asset: product.asset,
+      credits: product.credits,
+      status: 'completed',
       createdAt: now,
-    });
+    };
+    transaction.create(paymentRef, paymentRecord);
     transaction.update(invoiceRef, {
       status: 'completed',
       paymentId,
       paidAt: now,
       updatedAt: now,
-      rawWebhook: payload,
     });
-    transaction.set(userRef.collection('payments').doc(invoiceId), {
-      ...payload,
-      productId: product.id,
-      paymentId,
-      status: 'completed',
-      createdAt: now,
-    });
+    transaction.create(userRef.collection('payments').doc(invoiceId), paymentRecord);
     transaction.update(userRef, updates);
 
     return { userId, credits: product.credits, plan: product.plan, invoiceId, paymentId };
   });
 };
 
-export const failInvoice = async (invoiceId: string, reason: string, raw?: any) => {
-  if (!invoiceId) return;
-  const db = getAdminDb();
-  await db.collection('taurusPayInvoices').doc(invoiceId).set({
+export const failInvoice = async (invoiceId: string, reason: string) => {
+  if (!SAFE_ID.test(invoiceId)) return;
+  await getAdminDb().collection('taurusPayInvoices').doc(invoiceId).set({
     status: reason.includes('overpay') ? 'manual_review' : 'failed',
-    failureReason: reason,
-    rawWebhook: raw || null,
+    failureReason: reason.slice(0, 160),
     updatedAt: adminFieldValue.serverTimestamp(),
   }, { merge: true });
 };

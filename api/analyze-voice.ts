@@ -1,5 +1,8 @@
+import { ApiError, sendApiError } from './_apiError.js';
+import { enforceUserRateLimit } from './_rateLimit.js';
+import { requireFirebaseAuth } from './_serverAuth.js';
+
 const VOICE_MODEL = process.env.GEMINI_VOICE_MODEL || 'gemini-2.5-flash';
-const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || 'AIzaSyDjowhLt-pq5DKd-phnS1Hwx7tdRomJCNQ';
 
 export const config = {
   api: {
@@ -7,28 +10,6 @@ export const config = {
       sizeLimit: '16mb',
     },
   },
-};
-
-const requireFirebaseAuth = async (req: any) => {
-  const authorization = req.headers?.authorization || req.headers?.Authorization || '';
-  const idToken = typeof authorization === 'string' && authorization.startsWith('Bearer ')
-    ? authorization.slice('Bearer '.length)
-    : '';
-
-  if (!idToken) {
-    throw new Error('Please login again to use Taurus AI.');
-  }
-
-  const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_API_KEY}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idToken }),
-  });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload.users?.[0]?.localId) {
-    throw new Error('Login session expired. Please sign in again.');
-  }
 };
 
 const cleanPrompt = (value: string) => (
@@ -71,7 +52,7 @@ const analyzeVoiceReference = async ({
 }) => {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is not configured on the server.');
+    throw new ApiError(503, 'VOICE_ANALYSIS_NOT_CONFIGURED', 'Voice analysis is temporarily unavailable.');
   }
 
   const { GoogleGenAI } = await import('@google/genai');
@@ -124,7 +105,8 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    await requireFirebaseAuth(req);
+    const user = await requireFirebaseAuth(req);
+    await enforceUserRateLimit(user, 'voice-analysis', 5);
     const {
       audioBase64,
       mimeType,
@@ -172,14 +154,11 @@ export default async function handler(req: any, res: any) {
     });
 
     if (!prompt) {
-      throw new Error('Voice analysis did not return a prompt. Try a clearer vocal recording.');
+      throw new ApiError(502, 'VOICE_ANALYSIS_EMPTY', 'Voice analysis did not return a prompt.');
     }
 
     return res.status(200).json({ prompt, model: VOICE_MODEL });
-  } catch (error: any) {
-    console.error('Analyze voice API error:', error);
-    const message = error?.message || 'Failed to analyze voice.';
-    const status = message.includes('login') || message.includes('session') ? 401 : 500;
-    return res.status(status).json({ error: message });
+  } catch (error: unknown) {
+    return sendApiError(res, error, 'Analyze voice API failed');
   }
 }

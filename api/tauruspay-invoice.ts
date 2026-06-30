@@ -1,6 +1,10 @@
+import { ApiError, sendApiError } from './_apiError.js';
 import { requireFirebaseAuth } from './_serverAuth.js';
 import { getAdminDb, adminFieldValue } from './_firebaseAdmin.js';
-import { CALLBACK_URL, TAURUS_SERVICE, TAURUSPAY_BASE_URL, TAURUSPAY_RECIPIENT, getProduct, taurusPayFetch } from './_taurusPay.js';
+import { enforceUserRateLimit } from './_rateLimit.js';
+import { getProduct, getTaurusPayConfig, TAURUS_SERVICE, taurusPayFetch } from './_taurusPay.js';
+
+const WALLET_PATTERN = /^[a-zA-Z0-9_:-]{20,128}$/;
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -10,13 +14,17 @@ export default async function handler(req: any, res: any) {
 
   try {
     const user = await requireFirebaseAuth(req);
+    await enforceUserRateLimit(user, 'payment-invoice', 5);
     const { productId, wallet } = req.body || {};
     const product = getProduct(String(productId || ''));
     const safeWallet = String(wallet || '').trim();
-    if (!safeWallet) return res.status(400).json({ error: 'Telegram/TON wallet address is required.' });
+    if (!WALLET_PATTERN.test(safeWallet)) {
+      throw new ApiError(400, 'PAYMENT_WALLET_INVALID', 'A valid TON wallet address is required.');
+    }
     if (!user.email) return res.status(400).json({ error: 'Email is required.' });
+    const config = getTaurusPayConfig();
 
-    const invoice = await taurusPayFetch(`${TAURUSPAY_BASE_URL}/api/payment?action=create-invoice`, {
+    const invoice = await taurusPayFetch('/api/payment?action=create-invoice', {
       method: 'POST',
       body: JSON.stringify({
         service: TAURUS_SERVICE,
@@ -24,12 +32,12 @@ export default async function handler(req: any, res: any) {
         asset: product.asset,
         wallet: safeWallet,
         email: user.email,
-        callbackUrl: CALLBACK_URL,
+        callbackUrl: config.callbackUrl.toString(),
       }),
     });
 
     const invoiceId = String(invoice.invoiceId || invoice.id || '');
-    if (!invoiceId) throw new Error('TaurusPay did not return invoiceId.');
+    if (!invoiceId) throw new ApiError(502, 'PAYMENT_INVOICE_INVALID', 'Payment provider did not return an invoice.');
 
     const db = getAdminDb();
     await db.collection('taurusPayInvoices').doc(invoiceId).set({
@@ -44,11 +52,10 @@ export default async function handler(req: any, res: any) {
       credits: product.credits,
       amount: product.amount,
       asset: product.asset,
-      recipient: invoice.recipient || TAURUSPAY_RECIPIENT,
+      recipient: invoice.recipient || config.recipient,
       memo: invoice.memo || invoice.reference || '',
       reference: invoice.reference || '',
       status: invoice.status || 'pending',
-      rawInvoice: invoice,
       createdAt: adminFieldValue.serverTimestamp(),
       updatedAt: adminFieldValue.serverTimestamp(),
     }, { merge: true });
@@ -61,17 +68,12 @@ export default async function handler(req: any, res: any) {
       amount: product.amount,
       asset: product.asset,
       network: 'TON',
-      recipient: invoice.recipient || TAURUSPAY_RECIPIENT,
+      recipient: invoice.recipient || config.recipient,
       memo: invoice.memo || invoice.reference || '',
       reference: invoice.reference || '',
       expiresAt: invoice.expiresAt || null,
-      raw: invoice,
     });
-  } catch (error: any) {
-    const message = error?.message || 'Failed to create TaurusPay invoice.';
-    const statusCode = message.toLowerCase().includes('login') || message.toLowerCase().includes('session') ? 401 : 500;
-    if (statusCode === 401) console.warn('TaurusPay invoice auth required:', message);
-    else console.error('TaurusPay invoice API error:', error);
-    return res.status(statusCode).json({ error: message });
+  } catch (error: unknown) {
+    return sendApiError(res, error, 'TaurusPay invoice API failed');
   }
 }

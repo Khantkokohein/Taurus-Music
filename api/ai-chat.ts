@@ -1,27 +1,8 @@
+import { ApiError, sendApiError } from './_apiError.js';
+import { enforceUserRateLimit } from './_rateLimit.js';
+import { requireFirebaseAuth } from './_serverAuth.js';
+
 const TEXT_MODEL = 'gemini-3-flash-preview';
-const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || 'AIzaSyDjowhLt-pq5DKd-phnS1Hwx7tdRomJCNQ';
-
-const requireFirebaseAuth = async (req: any) => {
-  const authorization = req.headers?.authorization || req.headers?.Authorization || '';
-  const idToken = typeof authorization === 'string' && authorization.startsWith('Bearer ')
-    ? authorization.slice('Bearer '.length)
-    : '';
-
-  if (!idToken) {
-    throw new Error('Please login again to use Taurus AI.');
-  }
-
-  const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_API_KEY}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idToken }),
-  });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload.users?.[0]?.localId) {
-    throw new Error('Login session expired. Please sign in again.');
-  }
-};
 
 const generateChatReply = async ({
   sourceText,
@@ -36,7 +17,7 @@ const generateChatReply = async ({
 }) => {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is not configured on the server.');
+    throw new ApiError(503, 'AI_CHAT_NOT_CONFIGURED', 'Taurus AI is temporarily unavailable.');
   }
 
   const { GoogleGenAI } = await import('@google/genai');
@@ -59,7 +40,8 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    await requireFirebaseAuth(req);
+    const user = await requireFirebaseAuth(req);
+    await enforceUserRateLimit(user, 'ai-chat', 20);
     const { sourceText, userName, languageHint, recentContext } = req.body || {};
     if (!sourceText || typeof sourceText !== 'string') {
       return res.status(400).json({ error: 'Message is required.' });
@@ -73,10 +55,7 @@ export default async function handler(req: any, res: any) {
     });
 
     return res.status(200).json({ reply });
-  } catch (error: any) {
-    console.error('AI chat API error:', error);
-    const message = error?.message || 'Failed to generate chat reply.';
-    const status = message.includes('login') || message.includes('session') ? 401 : 500;
-    return res.status(status).json({ error: message });
+  } catch (error: unknown) {
+    return sendApiError(res, error, 'AI chat API failed');
   }
 }
