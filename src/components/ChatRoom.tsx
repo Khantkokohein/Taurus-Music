@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Bot, Gift, Loader2, MessageSquare, Music, Send, ShieldAlert, Users, X } from 'lucide-react';
 import { collection, query, orderBy, onSnapshot, limit, serverTimestamp, setDoc, doc, deleteDoc, updateDoc, Timestamp, increment, getDocs } from 'firebase/firestore';
-import { CHAT_BAN_DURATION_MS, CHAT_BAN_THRESHOLD, db, isOwnerEmail } from '../firebase';
+import { CHAT_BAN_DURATION_MS, CHAT_BAN_THRESHOLD, db } from '../firebase';
 
 interface Message {
   id: string;
@@ -190,7 +190,7 @@ export default function ChatRoom({ currentUser, isAdmin = false, onClose }: Chat
   const [isGivingAway, setIsGivingAway] = useState(false);
   const [fakeOnline, setFakeOnline] = useState(getInitialFakeOnline);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const isOwnerUnlimited = isOwnerEmail(currentUser?.email);
+  const isOwnerUnlimited = isAdmin;
   const onlineCount = fakeOnline + activeUsers.length;
   const onlineNames = [
     ...activeUsers.map(user => user.displayName).filter(Boolean),

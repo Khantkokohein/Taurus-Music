@@ -166,7 +166,7 @@ service cloud.firestore {
           'updatedAt'
         ])
         && incoming().userId == userId
-        && incoming().email == request.auth.token.email
+        && incoming().email == request.auth.token.get('email', '')
         && incoming().challengeId == 'taurus-music-studio-challenge-2026-05'
         && incoming().displayName is string
         && incoming().displayName.size() > 0
@@ -221,7 +221,7 @@ service cloud.firestore {
         && incoming().authorName is string
         && incoming().authorName.size() > 0
         && incoming().authorName.size() <= 80
-        && (!('authorEmail' in incoming()) || incoming().authorEmail == request.auth.token.email)
+        && (!('authorEmail' in incoming()) || incoming().authorEmail == request.auth.token.get('email', ''))
         && incoming().likeCount == 0
         && incoming().commentCount == 0
         && incoming().saveCount == 0
@@ -396,7 +396,7 @@ service cloud.firestore {
           'chatBanCount'
         ])
         && incoming().uid == request.auth.uid
-        && incoming().email == request.auth.token.email
+        && incoming().email == request.auth.token.get('email', '')
         && (!('taurusId' in incoming()) || isValidTaurusAccountCode(incoming().taurusId))
         && (!('taurusNumber' in incoming()) || incoming().taurusNumber == incoming().taurusId)
         && (!('taurusCoinBalance' in incoming()) || incoming().taurusCoinBalance == 0)

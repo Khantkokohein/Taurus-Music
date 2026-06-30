@@ -7,8 +7,14 @@ import ChallengeHub, { ChallengePage } from './components/ChallengeHub';
 import DeveloperHub from './components/DeveloperHub';
 import TaurusLandingPage from './components/TaurusLandingPage';
 import TaurusVoiceHub from './components/TaurusVoiceHub';
-import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, registerForChallenge, saveChallengeEntry, toggleChallengeReaction, addChallengeComment, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadVoiceProfileSample, saveVoiceProfile, uploadRemixReference, getEffectivePlanConfig, getTimestampMillis, getChallengeQuotaState, isChallengeRegistrationOpen, isChallengeCreationOpen, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, GENERATE_FULL_SONG_COST, UserProfile, ChallengeEntry } from './firebase';
+import { auth, db, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, registerForChallenge, saveChallengeEntry, toggleChallengeReaction, addChallengeComment, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadVoiceProfileSample, saveVoiceProfile, uploadRemixReference, getEffectivePlanConfig, getTimestampMillis, getChallengeQuotaState, isChallengeRegistrationOpen, isChallengeCreationOpen, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, GENERATE_FULL_SONG_COST, UserProfile, ChallengeEntry } from './firebase';
 import { getGeneratedAudioBlob } from './lib/generatedAudio';
+import {
+  authenticateTelegramMiniApp,
+  getTelegramInitData,
+  initializeTelegramMiniApp,
+  openTaurusTelegramMiniApp,
+} from './lib/telegramMiniApp';
 
 interface Song { id: string; userId?: string; idea: string; prompt: string; audioUrl: string; storagePath?: string; mimeType?: string; lyrics: string; lyriaModel?: LyriaModelId; editorOperation?: string; instrumentTags?: string[]; voiceStrength?: string; voiceProfileId?: string; voiceProfileName?: string; remixMode?: string; remixReferencePath?: string; remixReferenceName?: string; createdAt: number; }
 interface VoiceProfile { id: string; userId?: string; name: string; sampleUrl: string; storagePath: string; contentType: string; consent: boolean; consentText: string; createdAt: number; }
@@ -44,7 +50,7 @@ const STUDIO_NAV_PAGES: StudioPage[] = ['landing', 'create', 'history', 'challen
 const STUDIO_PANELS: Array<Exclude<StudioPanel, null>> = ['voice', 'developers', 'admin'];
 const postJson = async <T,>(url: string, body: Record<string, unknown>): Promise<T> => {
   const token = await auth.currentUser?.getIdToken();
-  if (!token) throw new Error('Login with Gmail first.');
+  if (!token) throw new Error('Open Taurus from Telegram first.');
   const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || 'Request failed.');
@@ -151,6 +157,9 @@ const buildStudioPrompt = (s: { idea: string; lyrics: string; genre: string; moo
 export default function AppStudio() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [tokenAdmin, setTokenAdmin] = useState(false);
+  const [privateFamily, setPrivateFamily] = useState(false);
+  const [isTelegramAuthenticating, setIsTelegramAuthenticating] = useState(false);
   const [history, setHistory] = useState<Song[]>([]);
   const [challengeEntries, setChallengeEntries] = useState<ChallengeEntry[]>([]);
   const [challengeCommentText, setChallengeCommentText] = useState<Record<string, string>>({});
@@ -231,15 +240,15 @@ export default function AppStudio() {
     else navigatePage('create');
   };
 
-  const owner = isOwnerEmail(user?.email) || isOwnerProfile(profile);
+  const owner = tokenAdmin || profile?.role === 'admin';
   const expired = isSubscriptionExpired(profile);
   const plan = getEffectivePlanConfig(profile);
   const monthlyLimit = expired ? plan.monthlyLimit : (profile?.monthlyLimit || plan.monthlyLimit);
   const monthlyUsed = profile?.songsUsedThisMonth || 0;
   const monthlyRemaining = Math.max(monthlyLimit - monthlyUsed, 0);
   const pointBalance = Math.max(Number(profile?.points || 0), 0);
-  const credits = !user ? 'Login' : owner ? '∞' : String(pointBalance);
-  const daily = !user ? 'Connect Gmail' : owner ? '∞' : plan.id === 'free' ? `${monthlyRemaining}/month` : 'No cap';
+  const credits = !user ? 'Telegram' : privateFamily ? '∞' : String(pointBalance);
+  const daily = !user ? 'Open Telegram' : privateFamily ? '∞' : plan.id === 'free' ? `${monthlyRemaining}/month` : 'No cap';
   const admin = owner || profile?.role === 'admin';
   const taurusId = profile?.taurusId || (user ? buildTaurusAccountCode(user.uid) : '');
   const filtered = useMemo(() => history.filter(s => `${s.idea} ${s.prompt}`.toLowerCase().includes(search.toLowerCase())), [history, search]);
@@ -253,13 +262,24 @@ export default function AppStudio() {
   const generateButtonText = `Generate ${generationCountLabel} - ${GENERATE_FULL_SONG_COST} credits`;
   const connectedWalletLabel = tonAddress ? compactWalletAddress(tonAddress) : 'Not connected';
 
-  const handleGoogleLogin = async () => {
+  const handleTelegramLogin = async () => {
     setError(null);
+    if (auth.currentUser) {
+      navigatePage('create');
+      return;
+    }
     try {
-      await signInWithGoogle();
-      setProgress('Gmail connected.');
+      if (!getTelegramInitData()) {
+        openTaurusTelegramMiniApp();
+        return;
+      }
+      setIsTelegramAuthenticating(true);
+      await authenticateTelegramMiniApp();
+      setProgress('Telegram verified.');
     } catch (e: any) {
-      setError(e?.message || 'Gmail login failed. Please try again.');
+      setError(e?.message || 'Telegram authentication failed. Reopen Taurus from the bot.');
+    } finally {
+      setIsTelegramAuthenticating(false);
     }
   };
 
@@ -274,11 +294,46 @@ export default function AppStudio() {
   }, []);
 
   useEffect(() => {
+    initializeTelegramMiniApp();
+    if (!getTelegramInitData()) return;
+    let cancelled = false;
+    const authenticate = async () => {
+      await auth.authStateReady();
+      if (cancelled || auth.currentUser) return;
+      setIsTelegramAuthenticating(true);
+      try {
+        await authenticateTelegramMiniApp();
+        if (!cancelled) setProgress('Telegram verified.');
+      } catch (authError: any) {
+        if (!cancelled) {
+          setError(authError?.message || 'Telegram authentication failed.');
+        }
+      } finally {
+        if (!cancelled) setIsTelegramAuthenticating(false);
+      }
+    };
+    void authenticate();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     let unsubProfile: (() => void) | undefined;
     const unsub = onAuthStateChanged(auth, async authUser => {
       unsubProfile?.();
       setUser(authUser);
-      if (!authUser) { setProfile(null); setHistory([]); return; }
+      if (!authUser) {
+        setProfile(null);
+        setHistory([]);
+        setTokenAdmin(false);
+        setPrivateFamily(false);
+        return;
+      }
+      const tokenResult = await authUser.getIdTokenResult();
+      const isTokenAdmin = tokenResult.claims.admin === true;
+      setTokenAdmin(isTokenAdmin);
+      setPrivateFamily(tokenResult.claims.privateFamily === true);
       const existing = await getUserProfile(authUser.uid);
       if (!existing) await createUserProfile(authUser.uid, authUser.email || '', authUser.displayName || '');
       else await claimDailyPointsIfNeeded(authUser.uid, authUser.displayName || '');
@@ -286,7 +341,7 @@ export default function AppStudio() {
         if (!snap.exists()) return;
         const live = snap.data() as UserProfile;
         setProfile(live);
-        if (window.location.pathname === '/admin' && (live.role === 'admin' || isOwnerEmail(live.email))) setShowAdmin(true);
+        if (window.location.pathname === '/admin' && (live.role === 'admin' || isTokenAdmin)) setShowAdmin(true);
       });
     });
     return () => { unsub(); unsubProfile?.(); };
@@ -367,7 +422,7 @@ export default function AppStudio() {
   const downloadSong = (song: Song) => { const link = document.createElement('a'); link.href = song.audioUrl; link.download = `${song.idea || 'taurus-song'}.mp3`.replace(/[^a-z0-9._-]+/gi, '-'); link.click(); };
   const setFeedback = (label: string) => setProgress(`Feedback saved: ${label}. Next version will tune stronger.`);
   const saveEditedOutputs = async (sourceSong: Song, response: AudioEditResponse) => {
-    if (!user) throw new Error('Login with Gmail first.');
+    if (!user) throw new Error('Open Taurus from Telegram first.');
     for (let index = 0; index < response.outputs.length; index += 1) {
       const output = response.outputs[index];
       const blob = audioBase64ToBlob(output.audioBase64, output.mimeType);
@@ -394,7 +449,7 @@ export default function AppStudio() {
     }
   };
   const runAudioEdit = async (operation: AudioEditOperation) => {
-    if (!user) return setError('Login with Gmail first.');
+    if (!user) return setError('Open Taurus from Telegram first.');
     if (!currentSong) return setError('Select a song from History first.');
     if ((operation === 'crop' || operation === 'selected-range-export') && editEnd <= editStart) return setError('End time must be greater than start time.');
     setEditingOperation(operation); setError(null);
@@ -433,7 +488,7 @@ export default function AppStudio() {
   };
   const stopVoiceRecording = () => mediaRecorderRef.current?.stop();
   const saveCurrentVoiceProfile = async () => {
-    if (!user) return setError('Login with Gmail first.');
+    if (!user) return setError('Open Taurus from Telegram first.');
     if (!voiceConsent) return setError('Voice consent is required before saving a voice profile.');
     const sample = recordedVoiceBlob || voiceSampleFile;
     if (!sample) return setError('Upload or record a voice sample first.');
@@ -462,7 +517,7 @@ export default function AppStudio() {
   };
 
   const handleRegisterChallenge = async () => {
-    if (!user) return setError('Login with Gmail first.');
+    if (!user) return setError('Open Taurus from Telegram first.');
     setIsRegisteringChallenge(true); setError(null);
     try {
       const result = await registerForChallenge(user.uid);
@@ -473,7 +528,7 @@ export default function AppStudio() {
   };
 
   const handlePostChallengeSong = async () => {
-    if (!user) return setError('Login with Gmail first.');
+    if (!user) return setError('Open Taurus from Telegram first.');
     if (!profile?.challengeRegistered) return setError('Register for the challenge first.');
     if (!currentSong) return setError('Select a song from History first.');
     if (!currentSong.audioUrl || currentSong.audioUrl.startsWith('blob:')) return setError('This song needs permanent audio before posting.');
@@ -518,7 +573,7 @@ export default function AppStudio() {
   };
 
   const toggleChallengeAction = async (entry: ChallengeEntry, type: 'like' | 'save') => {
-    if (!user) return setError('Login with Gmail first.');
+    if (!user) return setError('Open Taurus from Telegram first.');
     setError(null);
     try {
       const next = await toggleChallengeReaction(entry.id, user.uid, type);
@@ -527,7 +582,7 @@ export default function AppStudio() {
   };
 
   const submitChallengeComment = async (entry: ChallengeEntry) => {
-    if (!user) return setError('Login with Gmail first.');
+    if (!user) return setError('Open Taurus from Telegram first.');
     const text = (challengeCommentText[entry.id] || '').trim();
     if (!text) return;
     setError(null);
@@ -538,8 +593,8 @@ export default function AppStudio() {
   };
 
   const generate = async () => {
-    if (!user) return setError('Login with Gmail first.');
-    if (!profile) return setError('Gmail connected. Profile is loading, please try again in a moment.');
+    if (!user) return setError('Open Taurus from Telegram first.');
+    if (!profile) return setError('Telegram verified. Profile is loading, please try again in a moment.');
     if (!idea.trim() && !lyrics.trim()) return setError('Add idea or lyrics.');
     if (remixMode !== 'Original' && !remixConsent) return setError('Cover/remix permission checkbox is required.');
     setIsGenerating(true); setError(null);
@@ -618,7 +673,7 @@ export default function AppStudio() {
         onOpenVoice={() => openPanel('voice')}
         onOpenDevelopers={() => openPanel('developers')}
         onOpenWallet={() => navigatePage('wallet')}
-        onLogin={handleGoogleLogin}
+        onLogin={handleTelegramLogin}
       />
     </div>;
   }
@@ -631,10 +686,10 @@ export default function AppStudio() {
       <aside className={`${immersiveChallengeFeed ? 'hidden' : 'hidden w-72 border-r border-white/10 bg-[#0b0a08]/95 p-6 lg:block'}`}>
         <div className="flex items-center gap-3"><div className="grid h-12 w-12 place-items-center rounded-2xl bg-[#D4A94514] text-[#D4A945]"><Music/></div><div><h1 className="text-xl font-black tracking-wide">Taurus</h1><p className="text-xs text-zinc-500">Studio Music OS</p></div></div>
         <nav className="mt-10 space-y-2 text-sm">{STUDIO_NAV_PAGES.map(x => { const active = activePage === x || (x === 'challenge' && isChallengePage(activePage)); return <button key={x} onClick={() => navigatePage(x)} className={`w-full rounded-2xl px-4 py-3 text-left font-bold capitalize transition-colors ${active?'bg-[#D4A945] text-black':'bg-white/[0.04] text-zinc-300 hover:bg-white/[0.07] hover:text-white'}`}>{studioPageLabel(x)}</button>; })}<button onClick={() => openPanel('voice')} className="flex w-full items-center gap-2 rounded-2xl border border-[#D4A94522] bg-[#D4A9450d] px-4 py-3 text-left font-bold text-[#D4A945] transition-colors hover:bg-[#D4A945] hover:text-black"><Mic2 className="h-4 w-4"/>Taurus Voice</button><button onClick={() => openPanel('developers')} className="flex w-full items-center gap-2 rounded-2xl bg-white/[0.04] px-4 py-3 text-left font-bold transition-colors hover:bg-white/[0.07]"><Code2 className="h-4 w-4"/>Developers</button>{admin && <button onClick={() => openPanel('admin')} className="w-full rounded-2xl border border-[#D4A94522] bg-[#D4A94514] px-4 py-3 text-left font-bold text-[#D4A945]">Admin</button>}</nav>
-        <div className="mt-10 rounded-3xl border border-white/10 bg-black/30 p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-[#D4A945]">Plan</p><p className="mt-2 font-semibold">{owner ? 'Owner Unlimited' : plan.name}</p>{taurusId && <p className="mt-1 font-mono text-xs text-zinc-500">{taurusId}</p>}<p className="text-sm text-zinc-400">Credits: {credits}</p><p className="text-sm text-zinc-400">Free month: {daily}</p></div>
+        <div className="mt-10 rounded-3xl border border-white/10 bg-black/30 p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-[#D4A945]">Plan</p><p className="mt-2 font-semibold">{privateFamily ? 'Private Family' : plan.name}</p>{taurusId && <p className="mt-1 font-mono text-xs text-zinc-500">{taurusId}</p>}<p className="text-sm text-zinc-400">Credits: {credits}</p><p className="text-sm text-zinc-400">Free month: {daily}</p></div>
       </aside>
       <main className={`min-w-0 ${immersiveChallengeFeed ? 'h-[100dvh] flex-1 p-0 lg:max-w-[540px]' : 'flex-1 p-4 sm:p-6 lg:p-8'}`}>
-        <header className={`${immersiveChallengeFeed ? 'hidden' : 'mb-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'}`}><div className="relative max-w-xl flex-1"><Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search songs..." className="w-full rounded-2xl border border-white/10 bg-black/30 py-3 pl-11 pr-4 outline-none transition-colors focus:border-[#D4A94588]"/></div><div className="flex gap-3"><div className="rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-3 text-sm font-bold text-[#D4A945]"><Wallet className="mr-2 inline h-4 w-4"/>{credits}</div>{user ? <button onClick={logout} title={user.email || 'Gmail connected'} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold transition-colors hover:text-white"><LogOut className="mr-2 inline h-4 w-4"/>Gmail Connected</button> : <button onClick={handleGoogleLogin} className="rounded-2xl bg-[#D4A945] px-4 py-3 text-sm font-black text-black transition-colors hover:bg-[#e6bd5b]"><UserIcon className="mr-2 inline h-4 w-4"/>Gmail</button>}</div></header>
+        <header className={`${immersiveChallengeFeed ? 'hidden' : 'mb-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'}`}><div className="relative max-w-xl flex-1"><Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search songs..." className="w-full rounded-2xl border border-white/10 bg-black/30 py-3 pl-11 pr-4 outline-none transition-colors focus:border-[#D4A94588]"/></div><div className="flex gap-3"><div className="rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-3 text-sm font-bold text-[#D4A945]"><Wallet className="mr-2 inline h-4 w-4"/>{credits}</div>{user ? <button onClick={logout} title={user.displayName || 'Telegram verified'} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold transition-colors hover:text-white"><LogOut className="mr-2 inline h-4 w-4"/>Telegram Connected</button> : <button onClick={handleTelegramLogin} disabled={isTelegramAuthenticating} className="rounded-2xl bg-[#D4A945] px-4 py-3 text-sm font-black text-black transition-colors hover:bg-[#e6bd5b] disabled:opacity-50"><UserIcon className="mr-2 inline h-4 w-4"/>{isTelegramAuthenticating ? 'Verifying...' : 'Open Telegram'}</button>}</div></header>
         <div className={`${immersiveChallengeFeed ? 'hidden' : 'mb-6 flex gap-2 overflow-x-auto pb-1 lg:hidden'}`}>{STUDIO_NAV_PAGES.map(x => { const active = activePage === x || (x === 'challenge' && isChallengePage(activePage)); return <button key={x} onClick={() => navigatePage(x)} className={`shrink-0 rounded-2xl px-4 py-2 text-xs font-bold capitalize ${active?'bg-[#D4A945] text-black':'border border-white/10 bg-white/[0.04] text-zinc-300'}`}>{studioPageLabel(x)}</button>; })}<button onClick={() => openPanel('voice')} className="shrink-0 rounded-2xl border border-[#D4A94533] bg-[#D4A9450d] px-4 py-2 text-xs font-bold text-[#D4A945]">Voice</button><button onClick={() => openPanel('developers')} className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-bold">API</button></div>
         {error && <div className="mb-5 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200"><AlertCircle className="mr-2 inline h-4 w-4"/>{error}</div>}
         <div className={`${immersiveChallengeFeed ? 'block h-[100dvh] min-w-0' : `grid min-w-0 gap-6 ${isChallengePage(activePage) ? 'xl:grid-cols-1' : 'xl:grid-cols-[1fr_360px]'}`}`}>
@@ -732,7 +787,7 @@ export default function AppStudio() {
 
               <div className="relative mt-6 flex flex-col gap-3 rounded-[1.75rem] border border-[#D4A94533] bg-[#D4A9450d] p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div><p className="text-sm font-black text-white">Studio render queue</p><p className="mt-1 text-xs text-zinc-500">{progress}</p></div>
-                <button onClick={generate} disabled={isGenerating || !user || !profile} className="rounded-2xl bg-[#D4A945] px-6 py-4 font-black text-black transition-colors hover:bg-[#e6bd5b] disabled:opacity-50">{isGenerating ? <Loader2 className="mr-2 inline h-5 w-5 animate-spin"/> : <Sparkles className="mr-2 inline h-5 w-5"/>}{!user ? 'Login Gmail to use free credits' : !profile ? 'Loading profile...' : generateButtonText}</button>
+                <button onClick={generate} disabled={isGenerating || !user || !profile} className="rounded-2xl bg-[#D4A945] px-6 py-4 font-black text-black transition-colors hover:bg-[#e6bd5b] disabled:opacity-50">{isGenerating ? <Loader2 className="mr-2 inline h-5 w-5 animate-spin"/> : <Sparkles className="mr-2 inline h-5 w-5"/>}{!user ? 'Open from Telegram to generate' : !profile ? 'Loading profile...' : generateButtonText}</button>
               </div>
             </div>
           </div>}

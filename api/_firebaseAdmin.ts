@@ -30,6 +30,7 @@ export const getAdminApp = () => {
 
     if (hasGoogleOidcConfig()) {
       options.credential = getFirebaseAdminOidcCredential() as admin.credential.Credential;
+      options.serviceAccountId = process.env.GCP_SERVICE_ACCOUNT_EMAIL;
     } else if (serviceAccount) {
       options.credential = admin.credential.cert(serviceAccount);
     } else if (!process.env.FIRESTORE_EMULATOR_HOST) {

@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { getAuth, signOut } from 'firebase/auth';
 import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, serverTimestamp, Timestamp, runTransaction } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
@@ -28,7 +28,6 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const storage = getStorage(app);
-export const googleProvider = new GoogleAuthProvider();
 
 export const FREE_STARTER_CREDITS = 60;
 export const FREE_DAILY_CREDIT_CAP = 60;
@@ -38,7 +37,6 @@ export const GENERATE_FULL_SONG_COST = 5;
 export const CHAT_BAN_THRESHOLD = 3;
 export const CHAT_BAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 export const LYRIA_SONG_API_COST_USD = 0.08;
-export const OWNER_EMAIL = 'koheinkhantko51@gmail.com';
 export const UNLIMITED_REMAINING = Number.MAX_SAFE_INTEGER;
 export const TAURUS_COIN_PER_USDT = 100;
 export const SONG_CREDIT_COST = GENERATE_TWO_SONGS_COST;
@@ -51,12 +49,8 @@ export const CHALLENGE_CREATION_START_MS = Date.parse('2026-05-16T00:00:00+06:30
 export const CHALLENGE_CREATION_END_MS = Date.parse('2026-05-19T23:59:59+06:30');
 export const CHALLENGE_WINNER_DATE_MS = Date.parse('2026-05-20T00:00:00+06:30');
 
-export const isOwnerEmail = (email?: string | null) => (
-  (email || '').trim().toLowerCase() === OWNER_EMAIL
-);
-
-export const isOwnerProfile = (profile?: { email?: string | null } | null) => (
-  isOwnerEmail(profile?.email)
+export const isOwnerProfile = (profile?: { role?: string | null } | null) => (
+  profile?.role === 'admin'
 );
 
 export const buildTaurusAccountCode = (uid: string) => {
@@ -252,7 +246,6 @@ export interface ChallengeComment {
   createdAt: any;
 }
 
-export const signInWithGoogle = () => signInWithPopup(auth, googleProvider);
 export const logout = () => signOut(auth);
 
 export const getUserProfile = async (uid: string): Promise<UserProfile | null> => {

@@ -50,7 +50,7 @@ export default function TaurusLandingPage({
             <button onClick={onOpenDevelopers}>API Key</button>
           </div>
           <button onClick={onLogin} className="rounded-xl border border-[#D4A94566] px-4 py-2 text-xs font-black uppercase text-[#D4A945] hover:bg-[#D4A945] hover:text-black">
-            <LogIn className="mr-2 inline h-4 w-4" /> Gmail
+            <LogIn className="mr-2 inline h-4 w-4" /> Telegram
           </button>
         </nav>
 
