@@ -50,11 +50,14 @@ export const authenticateTelegramMiniApp = async () => {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || typeof payload.customToken !== 'string') {
     if (
-      payload.code === 'TELEGRAM_FAMILY_SETUP_REQUIRED'
+      (
+        payload.code === 'TELEGRAM_FAMILY_SETUP_REQUIRED'
+        || payload.code === 'TELEGRAM_FAMILY_ACCESS_REQUIRED'
+      )
       && /^[1-9][0-9]{0,15}$/.test(String(payload.telegramUserId || ''))
     ) {
       throw new Error(
-        `Family setup required. Add Telegram ID ${payload.telegramUserId} to the private Vercel family variables.`,
+        `Family setup required. Your Telegram ID is ${payload.telegramUserId}. Add it to TELEGRAM_ALLOWED_USER_IDS in Vercel Preview.`,
       );
     }
     throw new Error(payload.error || 'Telegram authentication failed.');

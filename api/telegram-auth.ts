@@ -62,10 +62,18 @@ export default async function handler(req: any, res: any) {
       ? req.body.initData
       : '';
     const telegramUser = verifyTelegramMiniAppData({ initData });
-    if (getAllowedTelegramUserIds().size === 0) {
+    const allowedTelegramUserIds = getAllowedTelegramUserIds();
+    if (allowedTelegramUserIds.size === 0) {
       return res.status(428).json({
         error: 'Private family setup is required.',
         code: 'TELEGRAM_FAMILY_SETUP_REQUIRED',
+        telegramUserId: telegramUser.id,
+      });
+    }
+    if (!allowedTelegramUserIds.has(telegramUser.id)) {
+      return res.status(403).json({
+        error: 'This Telegram account is not in the private family list.',
+        code: 'TELEGRAM_FAMILY_ACCESS_REQUIRED',
         telegramUserId: telegramUser.id,
       });
     }
