@@ -8,7 +8,7 @@ const TELEGRAM_SIGNATURE_PATTERN = /^[A-Za-z0-9_-]{80,90}={0,2}$/;
 const TELEGRAM_PRODUCTION_PUBLIC_KEY_HEX = 'e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d';
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 const MAX_INIT_DATA_BYTES = 16 * 1024;
-const MAX_AUTH_AGE_SECONDS = 5 * 60;
+const MAX_AUTH_AGE_SECONDS = 24 * 60 * 60;
 const MAX_FUTURE_SKEW_SECONDS = 30;
 
 export type VerifiedTelegramMiniAppUser = {

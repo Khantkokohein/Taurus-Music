@@ -127,7 +127,7 @@ test('rejects tampered and stale Telegram Mini App data', () => {
     () => verifyTelegramMiniAppData({
       initData: signInitData({
         botToken: '123456:test-bot-token',
-        authDate: nowSeconds - 301,
+        authDate: nowSeconds - (24 * 60 * 60) - 1,
       }),
       botToken: '123456:test-bot-token',
       nowSeconds,
