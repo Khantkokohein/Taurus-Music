@@ -7,6 +7,7 @@ import {
 import {
   buildTelegramFirebaseUid,
   buildTelegramReplayId,
+  getAllowedTelegramUserIds,
   requireAllowedTelegramUser,
   verifyTelegramMiniAppData,
 } from './_telegramMiniAppAuth.js';
@@ -61,6 +62,13 @@ export default async function handler(req: any, res: any) {
       ? req.body.initData
       : '';
     const telegramUser = verifyTelegramMiniAppData({ initData });
+    if (getAllowedTelegramUserIds().size === 0) {
+      return res.status(428).json({
+        error: 'Private family setup is required.',
+        code: 'TELEGRAM_FAMILY_SETUP_REQUIRED',
+        telegramUserId: telegramUser.id,
+      });
+    }
     const { isOwner } = requireAllowedTelegramUser(telegramUser.id);
     const uid = buildTelegramFirebaseUid(telegramUser.id);
     await claimTelegramLogin({

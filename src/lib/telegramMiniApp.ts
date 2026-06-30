@@ -49,6 +49,14 @@ export const authenticateTelegramMiniApp = async () => {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || typeof payload.customToken !== 'string') {
+    if (
+      payload.code === 'TELEGRAM_FAMILY_SETUP_REQUIRED'
+      && /^[1-9][0-9]{0,15}$/.test(String(payload.telegramUserId || ''))
+    ) {
+      throw new Error(
+        `Family setup required. Add Telegram ID ${payload.telegramUserId} to the private Vercel family variables.`,
+      );
+    }
     throw new Error(payload.error || 'Telegram authentication failed.');
   }
 
@@ -66,7 +74,9 @@ export const authenticateTelegramMiniApp = async () => {
 };
 
 export const openTaurusTelegramMiniApp = () => {
-  const username = String(import.meta.env.VITE_TELEGRAM_BOT_USERNAME || '').trim();
+  const username = String(
+    import.meta.env.VITE_TELEGRAM_BOT_USERNAME || 'Taurus_Studio_Bot',
+  ).trim();
   if (!BOT_USERNAME_PATTERN.test(username)) {
     throw new Error('Telegram bot is not configured yet.');
   }
