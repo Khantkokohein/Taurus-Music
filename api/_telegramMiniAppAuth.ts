@@ -25,13 +25,14 @@ const parseTelegramIdSet = (name: string) => new Set(
     .filter(value => TELEGRAM_ID_PATTERN.test(value)),
 );
 
-export const getAllowedTelegramUserIds = () => (
-  parseTelegramIdSet('TELEGRAM_ALLOWED_USER_IDS')
-);
-
 export const getTelegramOwnerUserIds = () => (
   parseTelegramIdSet('TELEGRAM_OWNER_USER_IDS')
 );
+
+export const getAllowedTelegramUserIds = () => new Set([
+  ...parseTelegramIdSet('TELEGRAM_ALLOWED_USER_IDS'),
+  ...getTelegramOwnerUserIds(),
+]);
 
 export const buildTelegramFirebaseUid = (telegramUserId: string) => {
   if (!TELEGRAM_ID_PATTERN.test(telegramUserId)) {

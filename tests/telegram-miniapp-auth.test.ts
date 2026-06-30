@@ -165,6 +165,13 @@ test('family allowlist is exact and owner status is separate', { concurrency: fa
   );
 });
 
+test('an owner is always allowed even when omitted from the family list', { concurrency: false }, () => {
+  process.env.TELEGRAM_ALLOWED_USER_IDS = '987654321';
+  process.env.TELEGRAM_OWNER_USER_IDS = '123456789';
+  assert.deepEqual(requireAllowedTelegramUser('123456789'), { isOwner: true });
+  assert.deepEqual(requireAllowedTelegramUser('987654321'), { isOwner: false });
+});
+
 test('family allowlist fails closed when no Telegram IDs are configured', { concurrency: false }, () => {
   delete process.env.TELEGRAM_ALLOWED_USER_IDS;
   delete process.env.TELEGRAM_OWNER_USER_IDS;
