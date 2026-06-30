@@ -10,7 +10,7 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test:rules": "firebase emulators:exec --only firestore \"node --test tests/firestore.rules.test.mjs\"",
-    "test:api-security": "firebase emulators:exec --only firestore \"node --import tsx --test tests/generation-security.test.ts tests/audio-source.test.ts tests/google-cloud-config.test.ts tests/webhook-security.test.ts\"",
+    "test:api-security": "firebase emulators:exec --only firestore \"node --import tsx --test tests/generation-security.test.ts tests/audio-source.test.ts tests/google-cloud-config.test.ts tests/gemini-music-config.test.ts tests/personal-access.test.ts tests/webhook-security.test.ts\"",
     "test:security": "npm run test:rules && npm run test:api-security"
   },
   "dependencies": {

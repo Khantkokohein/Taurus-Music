@@ -7,7 +7,7 @@ import ChallengeHub, { ChallengePage } from './components/ChallengeHub';
 import DeveloperHub from './components/DeveloperHub';
 import TaurusLandingPage from './components/TaurusLandingPage';
 import TaurusVoiceHub from './components/TaurusVoiceHub';
-import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, registerForChallenge, saveChallengeEntry, toggleChallengeReaction, addChallengeComment, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadVoiceProfileSample, saveVoiceProfile, uploadRemixReference, getEffectivePlanConfig, getTimestampMillis, getChallengeQuotaState, isChallengeRegistrationOpen, isChallengeCreationOpen, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, GENERATE_TWO_SONGS_COST, UserProfile, ChallengeEntry } from './firebase';
+import { auth, db, signInWithGoogle, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, registerForChallenge, saveChallengeEntry, toggleChallengeReaction, addChallengeComment, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadVoiceProfileSample, saveVoiceProfile, uploadRemixReference, getEffectivePlanConfig, getTimestampMillis, getChallengeQuotaState, isChallengeRegistrationOpen, isChallengeCreationOpen, isOwnerEmail, isOwnerProfile, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, GENERATE_FULL_SONG_COST, UserProfile, ChallengeEntry } from './firebase';
 import { getGeneratedAudioBlob } from './lib/generatedAudio';
 
 interface Song { id: string; userId?: string; idea: string; prompt: string; audioUrl: string; storagePath?: string; mimeType?: string; lyrics: string; lyriaModel?: LyriaModelId; editorOperation?: string; instrumentTags?: string[]; voiceStrength?: string; voiceProfileId?: string; voiceProfileName?: string; remixMode?: string; remixReferencePath?: string; remixReferenceName?: string; createdAt: number; }
@@ -18,7 +18,7 @@ type AudioEditResponse = { ok: boolean; operation: AudioEditOperation; format: '
 type StudioPage = 'landing' | 'create' | 'history' | 'wallet' | 'plans' | ChallengePage;
 type StudioPanel = 'voice' | 'developers' | 'admin' | null;
 type StudioVersion = 'A' | 'B' | 'C' | 'D';
-type LyriaModelId = 'lyria-002';
+type LyriaModelId = 'lyria-3-pro-preview';
 
 interface StudioRoute {
   page: StudioPage;
@@ -32,11 +32,11 @@ const VOICE_STRENGTHS = ['Power Vocal', 'Soft Vocal', 'Cold Vocal', 'Studio Voca
 const INSTRUMENT_CHOICES = ['Piano', 'Guitar', 'Bass Boost', 'Violin', '808', 'Drums', 'Strings', 'Synth'];
 const REMIX_MODES = ['Original', 'Cover Safe', 'Remix Safe', 'Melody to Song'];
 const SINGERS = ['Male', 'Female', 'Duet'];
-const LANGS = ['Burmese', 'English', 'Burmese + English'];
+const LANGS = ['Burmese', 'English', 'Burmese + English', 'Chinese', 'Japanese', 'Korean', 'Thai', 'Hindi', 'Spanish', 'French', 'Arabic', 'Other'];
 const QUALITY = ['Taurus Studio', 'Taurus Apex', 'Taurus Custom'];
 const STRUCTURES = ['3:00 Studio Map', 'Rap Hook Map', 'Cinematic Build', 'Chill Loop'];
 const LYRIA_MODEL_OPTIONS: Array<{ id: LyriaModelId; label: string; note: string }> = [
-  { id: 'lyria-002', label: 'Lyria 2', note: '30-second instrumental WAV clip' },
+  { id: 'lyria-3-pro-preview', label: 'Lyria 3 Pro', note: 'Gemini vocal full song · 3+ minutes' },
 ];
 const CHALLENGE_PAGES: ChallengePage[] = ['challenge', 'challenge-rules', 'challenge-feed', 'challenge-leaderboard'];
 const STUDIO_PAGES: StudioPage[] = ['landing', 'create', 'history', 'wallet', 'plans', ...CHALLENGE_PAGES];
@@ -191,7 +191,8 @@ export default function AppStudio() {
   const [singer, setSinger] = useState('Male');
   const [lang, setLang] = useState('Burmese');
   const [quality, setQuality] = useState('Taurus Studio');
-  const [lyriaModel, setLyriaModel] = useState<LyriaModelId>('lyria-002');
+  const [lyriaModel, setLyriaModel] = useState<LyriaModelId>('lyria-3-pro-preview');
+  const [customLanguage, setCustomLanguage] = useState('');
   const [bpm, setBpm] = useState(120);
   const [structure, setStructure] = useState('3:00 Studio Map');
   const [editStart, setEditStart] = useState(0);
@@ -248,8 +249,8 @@ export default function AppStudio() {
   const challengeCreationOpen = isChallengeCreationOpen();
   const effectiveLyriaModel: LyriaModelId = lyriaModel;
   const activeLyriaOption = LYRIA_MODEL_OPTIONS.find(item => item.id === effectiveLyriaModel) || LYRIA_MODEL_OPTIONS[0];
-  const generationCountLabel = '2 instrumental clips';
-  const generateButtonText = `Generate ${generationCountLabel} - ${GENERATE_TWO_SONGS_COST} credits`;
+  const generationCountLabel = '1 full vocal song (3+ min)';
+  const generateButtonText = `Generate ${generationCountLabel} - ${GENERATE_FULL_SONG_COST} credits`;
   const connectedWalletLabel = tonAddress ? compactWalletAddress(tonAddress) : 'Not connected';
 
   const handleGoogleLogin = async () => {
@@ -296,7 +297,7 @@ export default function AppStudio() {
     const q = query(collection(db, 'users', user.uid, 'songs'), orderBy('createdAt', 'desc'), limit(30));
     return onSnapshot(q, snap => setHistory(snap.docs.map(d => {
       const x = d.data();
-      return { id: d.id, userId: x.userId || user.uid, idea: x.idea || 'Untitled', prompt: x.prompt || '', audioUrl: x.audioUrl || '', storagePath: x.storagePath, mimeType: x.mimeType || 'audio/mpeg', lyrics: x.lyrics || '', lyriaModel: x.lyriaModel || 'lyria-002', editorOperation: x.editorOperation || '', instrumentTags: x.instrumentTags || [], voiceStrength: x.voiceStrength || '', voiceProfileId: x.voiceProfileId || '', voiceProfileName: x.voiceProfileName || '', remixMode: x.remixMode || '', remixReferencePath: x.remixReferencePath || '', remixReferenceName: x.remixReferenceName || '', createdAt: x.createdAt?.toMillis?.() || Date.now() } as Song;
+      return { id: d.id, userId: x.userId || user.uid, idea: x.idea || 'Untitled', prompt: x.prompt || '', audioUrl: x.audioUrl || '', storagePath: x.storagePath, mimeType: x.mimeType || 'audio/mpeg', lyrics: x.lyrics || '', lyriaModel: x.lyriaModel || 'lyria-3-pro-preview', editorOperation: x.editorOperation || '', instrumentTags: x.instrumentTags || [], voiceStrength: x.voiceStrength || '', voiceProfileId: x.voiceProfileId || '', voiceProfileName: x.voiceProfileName || '', remixMode: x.remixMode || '', remixReferencePath: x.remixReferencePath || '', remixReferenceName: x.remixReferenceName || '', createdAt: x.createdAt?.toMillis?.() || Date.now() } as Song;
     })));
   }, [user]);
 
@@ -549,16 +550,16 @@ export default function AppStudio() {
         remixReference = await uploadRemixReference(user.uid, `ref-${Date.now()}`, remixReferenceFile);
       }
       const modelForRun: LyriaModelId = effectiveLyriaModel;
+      const runLanguage = customLanguage.trim() || lang;
       setProgress('Authorizing credits on the server...');
       const runLyriaOption = LYRIA_MODEL_OPTIONS.find(item => item.id === modelForRun) || activeLyriaOption;
       const variants: Array<{ version: StudioVersion; durationMode: 'full' | 'preview'; label: string; title: string }> = [
-        { version: 'A', durationMode: 'preview', label: 'Lyria 2 Clip A polished hook sample', title: 'Instrumental Clip A' },
-        { version: 'B', durationMode: 'preview', label: 'Lyria 2 Clip B deep cinematic hook sample', title: 'Instrumental Clip B' },
+        { version: 'A', durationMode: 'full', label: 'Lyria 3 Pro complete vocal master', title: 'Full Vocal Song' },
       ];
       for (const variant of variants) {
         setProgress(`Generating ${variant.title} with ${runLyriaOption.label}...`);
-        const corePrompt = buildStudioPrompt({ idea, lyrics, genre, mood, voice, voiceStrength, singer, lang, bpm, structure, quality, instruments, version: variant.version });
-        const studio = getStudioProductionPreset({ genre, mood, voice, voiceStrength, singer, lang, bpm, structure, instruments, version: variant.version });
+        const corePrompt = buildStudioPrompt({ idea, lyrics, genre, mood, voice, voiceStrength, singer, lang: runLanguage, bpm, structure, quality, instruments, version: variant.version });
+        const studio = getStudioProductionPreset({ genre, mood, voice, voiceStrength, singer, lang: runLanguage, bpm, structure, instruments, version: variant.version });
         const voiceProfilePrompt = selectedVoiceProfile
           ? `User-consented Taurus voice profile selected: ${selectedVoiceProfile.name}. Use it only as the user's authorized tone, diction, and delivery direction. Do not clone any third-party artist or unconsented identity.`
           : '';
@@ -568,7 +569,7 @@ export default function AppStudio() {
         const compiled = [corePrompt, voiceProfilePrompt, remixPrompt].filter(Boolean).join(' ');
         const response = await postJson<GenerateResponse>('/api/generate-song', {
           prompt: compiled,
-          genreDescription: `${genre}, ${mood}, ${lang}, ${bpm} BPM, ${instruments.join(', ') || 'studio core'}, Taurus Studio Master v4`,
+          genreDescription: `${genre}, ${mood}, ${runLanguage}, ${bpm} BPM, ${instruments.join(', ') || 'studio core'}, Taurus Studio Master v4`,
           arrangementDescription: studio.instrumentalProduction,
           modelProfile: `${quality}: Taurus Studio v4 production chain, ${voiceStrength}, flagship vocal clarity, full arrangement movement, selected instrument weight, and mastered maximum perceived loudness without clipping.`,
           lyricsText: lyrics,
@@ -644,8 +645,8 @@ export default function AppStudio() {
                 <div>
                   <p className="mb-3 text-xs font-black uppercase tracking-[0.34em] text-[#D4A945]">Studio Master V4</p>
                   <h2 className="max-w-2xl break-words text-3xl font-black tracking-tight text-white sm:text-4xl md:text-5xl">Make a release-ready song</h2>
-                  <p className="mt-4 max-w-2xl text-sm leading-7 text-zinc-400">Write the idea, choose voice and sound direction, then Taurus builds two studio versions with stronger vocal chain, heavier instrumental production, and mastered full-song structure.</p>
-                  <div className="mt-6 flex flex-wrap gap-3 text-xs font-black uppercase tracking-[0.2em] text-zinc-500"><span className="rounded-full border border-[#D4A94533] bg-[#D4A9450d] px-4 py-2 text-[#D4A945]">Full song map</span><span className="rounded-full border border-white/10 bg-black/30 px-4 py-2">Two versions</span><span className="rounded-full border border-white/10 bg-black/30 px-4 py-2">Studio texture</span></div>
+                   <p className="mt-4 max-w-2xl text-sm leading-7 text-zinc-400">Write the idea, choose language and voice direction, then Taurus uses Lyria 3 Pro to create one complete Gemini vocal song with a studio master and a minimum three-minute target.</p>
+                   <div className="mt-6 flex flex-wrap gap-3 text-xs font-black uppercase tracking-[0.2em] text-zinc-500"><span className="rounded-full border border-[#D4A94533] bg-[#D4A9450d] px-4 py-2 text-[#D4A945]">3+ minute full song</span><span className="rounded-full border border-white/10 bg-black/30 px-4 py-2">Gemini vocal</span><span className="rounded-full border border-white/10 bg-black/30 px-4 py-2">Studio texture</span></div>
                 </div>
                 <div className="rounded-[1.75rem] border border-[#D4A94533] bg-[#D4A9450d] p-5">
                   <Sparkles className="h-8 w-8 text-[#D4A945]"/>
@@ -691,7 +692,7 @@ export default function AppStudio() {
                 </div>
                 <div className="rounded-[1.75rem] border border-white/10 bg-black/30 p-5">
                   <h3 className="mb-5 text-lg font-black">Voice Direction</h3>
-                  <div className="space-y-5"><div><p className="mb-2 text-sm font-bold text-zinc-300">Voice</p>{chips(VOICES, voice, setVoice)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Strength</p>{chips(VOICE_STRENGTHS, voiceStrength, setVoiceStrength)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Singer</p>{chips(SINGERS, singer, setSinger)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Language</p>{chips(LANGS, lang, setLang)}</div></div>
+                   <div className="space-y-5"><div><p className="mb-2 text-sm font-bold text-zinc-300">Voice</p>{chips(VOICES, voice, setVoice)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Strength</p>{chips(VOICE_STRENGTHS, voiceStrength, setVoiceStrength)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Singer</p>{chips(SINGERS, singer, setSinger)}</div><div><p className="mb-2 text-sm font-bold text-zinc-300">Language</p>{chips(LANGS, lang, setLang)}<input value={customLanguage} onChange={e => setCustomLanguage(e.target.value.slice(0,80))} placeholder="Optional: type any language" className="mt-3 w-full rounded-2xl border border-white/10 bg-[#070707] px-4 py-3 text-sm outline-none focus:border-[#D4A94588]"/></div></div>
                 </div>
               </div>
 

@@ -179,7 +179,11 @@ export const uploadGeneratedAudio = async ({
 }) => {
   const config = getGoogleCloudConfig();
   const accessToken = await getGoogleAccessToken();
-  const safeExtension = mimeType === 'audio/wav' ? 'wav' : 'bin';
+  const safeExtension = mimeType === 'audio/wav'
+    ? 'wav'
+    : mimeType === 'audio/mpeg'
+      ? 'mp3'
+      : 'bin';
   const objectName = `generated/${uid}/${jobId}/audio.${safeExtension}`;
   const uploadUrl = new URL(`https://storage.googleapis.com/upload/storage/v1/b/${encodeURIComponent(config.storageBucket)}/o`);
   uploadUrl.searchParams.set('uploadType', 'media');

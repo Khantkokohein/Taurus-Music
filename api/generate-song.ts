@@ -5,25 +5,18 @@ import {
   reserveGeneration,
   type GenerationReservation,
 } from './_generationSecurity.js';
-import { generateLyriaAudio, uploadGeneratedAudio } from './_googleCloud.js';
+import { generateGeminiFullSong, getGeminiMusicModel } from './_geminiMusic.js';
+import { uploadGeneratedAudio } from './_googleCloud.js';
+import { requirePersonalAccess } from './_personalAccess.js';
 import { requireFirebaseAuth } from './_serverAuth.js';
 
-type LyriaModelId = 'lyria-002';
-const LYRIA_MODEL: LyriaModelId = 'lyria-002';
 export const config = {
+  maxDuration: 300,
   api: {
     bodyParser: {
-      sizeLimit: '32kb',
+      sizeLimit: '64kb',
     },
   },
-};
-
-const resolveLyriaModel = (
-  _requestedModel: unknown,
-  _reservation: GenerationReservation,
-  _isAdmin: boolean,
-): LyriaModelId => {
-  return LYRIA_MODEL;
 };
 
 const generateSongAudio = async ({
@@ -46,7 +39,6 @@ const generateSongAudio = async ({
   masteringProfile,
   negativeProductionRules,
   sectionMap,
-  lyriaModel,
 }: {
   prompt: string;
   genreDescription: string;
@@ -67,35 +59,36 @@ const generateSongAudio = async ({
   masteringProfile: string;
   negativeProductionRules: string;
   sectionMap: string;
-  lyriaModel: LyriaModelId;
 }) => {
   const fullPrompt = [
-    `Create an original, polished instrumental ${genreDescription} music clip.`,
-    'Target a concise 30-second arrangement with a clean ending.',
+    `Create one original, release-ready ${genreDescription} full song.`,
+    'The finished audio must be at least 3 minutes and target 3 minutes 10 seconds to 3 minutes 30 seconds.',
     `Theme: ${prompt}.`,
     `Variation: ${variantLabel}.`,
     `Model profile: ${modelProfile}.`,
     `Style tags: ${styleText || genreDescription}.`,
     `Artist/vibe reference: ${artistName || 'none'}. Use only broad genre, mood, vocal energy, arrangement, and production texture. Do not imitate or clone the exact artist voice, melody, lyrics, identity, or copyrighted song; create an original Taurus performance.`,
-    `Song section map: ${sectionMap || 'intro impact, main motif, hook lift, clean ending'}.`,
+    `Song section map: ${sectionMap || 'intro, verse 1, pre-chorus, chorus, verse 2, chorus, bridge, final chorus, complete outro'}.`,
+    `Vocal direction: ${voice}. ${vocalProduction || 'Natural lead singing, clear pronunciation, emotional phrasing, strong hook stacks, and no robotic delivery.'}`,
     `Instrumental direction: ${instrumentalProduction || arrangementDescription}.`,
-    `Mix/master direction: ${masteringProfile || 'Clear lead instruments, deep controlled low end, wide hook, glue compression, limiter, release-ready loudness.'}`,
-    'Create instrumental audio only; do not synthesize vocals.',
+    `Mix/master direction: ${masteringProfile || 'Clear lead vocal, deep controlled low end, wide hook, glue compression, limiter, and release-ready loudness.'}`,
+    `Lyrics mode: ${lyricsMode}. ${instrumental ? 'Create an instrumental track with no vocals.' : lyricsText ? `Sing these lyrics naturally and completely: ${lyricsText}.` : 'Write and sing original lyrics in the requested language.'}`,
     `Creative controls: weirdness ${weirdness}%, style influence ${styleInfluence}%.`,
     `Arrangement must follow these selected sounds: ${arrangementDescription}.`,
-    'Production must feel studio-recorded: tight timing, rich stereo instrumental, clear low end, balanced drums, strong hook, and mastered final mix.',
+    'Perform the whole song from the first intro through a complete outro. Do not return a short sample, preview, spoken narration, or instrumental-only clip unless instrumental was explicitly requested.',
+    'Production must feel studio-recorded: musical singing voice, tight timing, rich stereo instrumental, clear low end, balanced drums, strong hook, and mastered final mix.',
+    `Avoid these production failures: ${negativeProductionRules || 'short preview, spoken narration, thin demo, weak drums, muddy bass, abrupt cutoff, copyrighted imitation'}.`,
   ].join(' ');
 
-  const generated = await generateLyriaAudio({
+  const generated = await generateGeminiFullSong({
     prompt: fullPrompt,
-    negativePrompt: negativeProductionRules || 'vocals, thin demo, weak drums, muddy bass, abrupt cutoff, copyrighted imitation',
   });
 
   return {
     ...generated,
     lyrics: instrumental
       ? 'Instrumental track.'
-      : lyricsText || 'Lyria 2 currently generated an instrumental music clip.',
+      : generated.lyrics || lyricsText || 'Lyrics were generated with this Lyria 3 Pro track.',
   };
 };
 
@@ -108,6 +101,7 @@ export default async function handler(req: any, res: any) {
   let reservation: GenerationReservation | null = null;
   try {
     const user = await requireFirebaseAuth(req);
+    requirePersonalAccess(user);
     const { prompt, genreDescription, arrangementDescription, modelProfile, lyricsText, lyricsMode, instrumental, styleText, artistName, weirdness, styleInfluence, durationMode, variantLabel, voice, vocalProduction, instrumentalProduction, masteringProfile, negativeProductionRules, sectionMap, lyriaModel } = req.body || {};
     if (!prompt || typeof prompt !== 'string') {
       throw new ApiError(400, 'PROMPT_REQUIRED', 'Prompt is required.');
@@ -115,30 +109,28 @@ export default async function handler(req: any, res: any) {
 
     reservation = await reserveGeneration(
       user,
-      typeof lyriaModel === 'string' ? lyriaModel : '',
+      getGeminiMusicModel(),
     );
-    const authorizedModel = resolveLyriaModel(lyriaModel, reservation, user.admin);
     const result = await generateSongAudio({
       prompt: prompt.slice(0, 1200),
       genreDescription: typeof genreDescription === 'string' ? genreDescription.slice(0, 240) : 'modern pop',
       arrangementDescription: typeof arrangementDescription === 'string' ? arrangementDescription.slice(0, 500) : 'balanced full-band arrangement',
       modelProfile: typeof modelProfile === 'string' ? modelProfile.slice(0, 300) : 'Taurus Apex L5 free-start profile with flagship vocal and studio master quality',
-      lyricsText: typeof lyricsText === 'string' ? lyricsText.slice(0, 2000) : '',
+      lyricsText: typeof lyricsText === 'string' ? lyricsText.slice(0, 5000) : '',
       lyricsMode: lyricsMode === 'auto' ? 'auto' : 'manual',
       instrumental: instrumental === true,
       styleText: typeof styleText === 'string' ? styleText.slice(0, 500) : '',
       artistName: typeof artistName === 'string' ? artistName.slice(0, 80) : '',
       weirdness: typeof weirdness === 'number' ? Math.max(0, Math.min(100, weirdness)) : 50,
       styleInfluence: typeof styleInfluence === 'number' ? Math.max(0, Math.min(100, styleInfluence)) : 50,
-      durationMode: durationMode === 'preview' ? 'preview' : 'full',
+      durationMode: 'full',
       variantLabel: typeof variantLabel === 'string' ? variantLabel.slice(0, 120) : 'main version',
       voice: typeof voice === 'string' ? voice.slice(0, 120) : 'Duet/Pair',
       vocalProduction: typeof vocalProduction === 'string' ? vocalProduction.slice(0, 900) : '',
       instrumentalProduction: typeof instrumentalProduction === 'string' ? instrumentalProduction.slice(0, 900) : '',
       masteringProfile: typeof masteringProfile === 'string' ? masteringProfile.slice(0, 700) : '',
       negativeProductionRules: typeof negativeProductionRules === 'string' ? negativeProductionRules.slice(0, 600) : '',
-      sectionMap: typeof sectionMap === 'string' ? sectionMap.slice(0, 500) : '',
-      lyriaModel: authorizedModel,
+      sectionMap: typeof sectionMap === 'string' ? sectionMap.slice(0, 700) : '',
     });
 
     const stored = await uploadGeneratedAudio({

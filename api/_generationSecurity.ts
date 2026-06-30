@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { ApiError } from './_apiError.js';
 import { adminTimestamp, getAdminDb } from './_firebaseAdmin.js';
+import { isPersonalAccessUser } from './_personalAccess.js';
 import type { VerifiedFirebaseUser } from './_serverAuth.js';
 
 const FREE_PERIOD_LIMIT = 60;
@@ -82,8 +83,11 @@ export const reserveGeneration = async (
   const nowMs = now.getTime();
   const today = dateKey(now);
   const month = monthKey(now);
-  const creditCost = user.admin ? 0 : getGenerationCreditCost();
-  const rateLimit = user.admin ? Math.max(getGenerationRateLimit(), 20) : getGenerationRateLimit();
+  const trustedPersonalUser = isPersonalAccessUser(user.uid);
+  const creditCost = user.admin || trustedPersonalUser ? 0 : getGenerationCreditCost();
+  const rateLimit = user.admin || trustedPersonalUser
+    ? Math.max(getGenerationRateLimit(), 20)
+    : getGenerationRateLimit();
 
   return db.runTransaction(async (transaction) => {
     const [userSnap, rateSnap] = await Promise.all([

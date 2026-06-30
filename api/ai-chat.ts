@@ -1,4 +1,5 @@
 import { ApiError, sendApiError } from './_apiError.js';
+import { requirePersonalAccess } from './_personalAccess.js';
 import { enforceUserRateLimit } from './_rateLimit.js';
 import { requireFirebaseAuth } from './_serverAuth.js';
 
@@ -41,6 +42,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     const user = await requireFirebaseAuth(req);
+    requirePersonalAccess(user);
     await enforceUserRateLimit(user, 'ai-chat', 20);
     const { sourceText, userName, languageHint, recentContext } = req.body || {};
     if (!sourceText || typeof sourceText !== 'string') {

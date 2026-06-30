@@ -1,4 +1,5 @@
 import { ApiError, sendApiError } from './_apiError.js';
+import { requirePersonalAccess } from './_personalAccess.js';
 import { requireFirebaseAuth } from './_serverAuth.js';
 import { getAdminDb, adminFieldValue } from './_firebaseAdmin.js';
 import { enforceUserRateLimit } from './_rateLimit.js';
@@ -14,6 +15,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     const user = await requireFirebaseAuth(req);
+    requirePersonalAccess(user);
     await enforceUserRateLimit(user, 'payment-status', 10);
     const invoiceId = String(req.query?.invoiceId || req.body?.invoiceId || '').trim();
     if (!SAFE_ID.test(invoiceId)) throw new ApiError(400, 'PAYMENT_INVOICE_INVALID', 'Invalid invoiceId.');

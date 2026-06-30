@@ -1,6 +1,7 @@
 import { ApiError, sendApiError } from './_apiError.js';
 import { parseTrustedAudioUrl } from './_audioSource.js';
 import { getAdminDb } from './_firebaseAdmin.js';
+import { requirePersonalAccess } from './_personalAccess.js';
 import { enforceUserRateLimit } from './_rateLimit.js';
 import { requireFirebaseAuth } from './_serverAuth.js';
 
@@ -35,6 +36,7 @@ export default async function handler(req: any, res: any) {
     }
 
     const user = await requireFirebaseAuth(req);
+    requirePersonalAccess(user);
     await enforceUserRateLimit(user, 'audio-edit', 10);
     const body = req.body || {};
     const songId = String(body.songId || '').trim();

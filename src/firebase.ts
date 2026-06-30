@@ -34,6 +34,7 @@ export const FREE_STARTER_CREDITS = 60;
 export const FREE_DAILY_CREDIT_CAP = 60;
 export const PREMIUM_MONTHLY_CREDITS = 150;
 export const GENERATE_TWO_SONGS_COST = 10;
+export const GENERATE_FULL_SONG_COST = 5;
 export const CHAT_BAN_THRESHOLD = 3;
 export const CHAT_BAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 export const LYRIA_SONG_API_COST_USD = 0.08;
@@ -196,7 +197,7 @@ export interface Song {
   storagePath?: string;
   mimeType?: string;
   lyrics: string;
-  lyriaModel?: 'lyria-002';
+  lyriaModel?: 'lyria-002' | 'lyria-3-pro-preview';
   editorOperation?: string;
   instrumentTags?: string[];
   voiceStrength?: string;
