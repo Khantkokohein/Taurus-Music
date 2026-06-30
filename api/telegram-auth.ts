@@ -8,6 +8,7 @@ import {
   buildTelegramFirebaseUid,
   buildTelegramReplayId,
   getAllowedTelegramUserIds,
+  isPrivatePersonalPreview,
   requireAllowedTelegramUser,
   verifyTelegramMiniAppData,
 } from './_telegramMiniAppAuth.js';
@@ -79,11 +80,13 @@ export default async function handler(req: any, res: any) {
     }
     const { isOwner } = requireAllowedTelegramUser(telegramUser.id);
     const uid = buildTelegramFirebaseUid(telegramUser.id);
-    await claimTelegramLogin({
-      replayId: buildTelegramReplayId(initData),
-      uid,
-      telegramUserId: telegramUser.id,
-    });
+    if (!isPrivatePersonalPreview()) {
+      await claimTelegramLogin({
+        replayId: buildTelegramReplayId(initData),
+        uid,
+        telegramUserId: telegramUser.id,
+      });
+    }
 
     const customToken = await getAdminAuth().createCustomToken(uid, {
       telegram: true,

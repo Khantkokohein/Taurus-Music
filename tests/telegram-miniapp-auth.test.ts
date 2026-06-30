@@ -4,12 +4,15 @@ import assert from 'node:assert/strict';
 import { ApiError } from '../api/_apiError.js';
 import {
   buildTelegramFirebaseUid,
+  isPrivatePersonalPreview,
   requireAllowedTelegramUser,
   verifyTelegramMiniAppData,
 } from '../api/_telegramMiniAppAuth.js';
 
 const originalAllowed = process.env.TELEGRAM_ALLOWED_USER_IDS;
 const originalOwners = process.env.TELEGRAM_OWNER_USER_IDS;
+const originalAppMode = process.env.APP_MODE;
+const originalVercelEnvironment = process.env.VERCEL_ENV;
 
 after(() => {
   if (typeof originalAllowed === 'string') {
@@ -21,6 +24,16 @@ after(() => {
     process.env.TELEGRAM_OWNER_USER_IDS = originalOwners;
   } else {
     delete process.env.TELEGRAM_OWNER_USER_IDS;
+  }
+  if (typeof originalAppMode === 'string') {
+    process.env.APP_MODE = originalAppMode;
+  } else {
+    delete process.env.APP_MODE;
+  }
+  if (typeof originalVercelEnvironment === 'string') {
+    process.env.VERCEL_ENV = originalVercelEnvironment;
+  } else {
+    delete process.env.VERCEL_ENV;
   }
 });
 
@@ -170,6 +183,17 @@ test('an owner is always allowed even when omitted from the family list', { conc
   process.env.TELEGRAM_OWNER_USER_IDS = '123456789';
   assert.deepEqual(requireAllowedTelegramUser('123456789'), { isOwner: true });
   assert.deepEqual(requireAllowedTelegramUser('987654321'), { isOwner: false });
+});
+
+test('only private personal previews may skip durable replay storage', { concurrency: false }, () => {
+  process.env.APP_MODE = 'personal';
+  process.env.VERCEL_ENV = 'preview';
+  assert.equal(isPrivatePersonalPreview(), true);
+  process.env.VERCEL_ENV = 'production';
+  assert.equal(isPrivatePersonalPreview(), false);
+  process.env.APP_MODE = 'production';
+  process.env.VERCEL_ENV = 'preview';
+  assert.equal(isPrivatePersonalPreview(), false);
 });
 
 test('family allowlist fails closed when no Telegram IDs are configured', { concurrency: false }, () => {

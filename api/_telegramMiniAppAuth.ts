@@ -8,7 +8,8 @@ const TELEGRAM_SIGNATURE_PATTERN = /^[A-Za-z0-9_-]{80,90}={0,2}$/;
 const TELEGRAM_PRODUCTION_PUBLIC_KEY_HEX = 'e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d';
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 const MAX_INIT_DATA_BYTES = 16 * 1024;
-const MAX_AUTH_AGE_SECONDS = 24 * 60 * 60;
+const PRODUCTION_MAX_AUTH_AGE_SECONDS = 5 * 60;
+const PERSONAL_PREVIEW_MAX_AUTH_AGE_SECONDS = 24 * 60 * 60;
 const MAX_FUTURE_SKEW_SECONDS = 30;
 
 export type VerifiedTelegramMiniAppUser = {
@@ -40,6 +41,11 @@ export const buildTelegramFirebaseUid = (telegramUserId: string) => {
   }
   return `telegram:${telegramUserId}`;
 };
+
+export const isPrivatePersonalPreview = () => (
+  process.env.APP_MODE === 'personal'
+  && process.env.VERCEL_ENV === 'preview'
+);
 
 const safeEqualHex = (left: string, right: string) => {
   if (!TELEGRAM_HASH_PATTERN.test(left) || !TELEGRAM_HASH_PATTERN.test(right)) {
@@ -155,9 +161,12 @@ export const verifyTelegramMiniAppData = ({
   }
 
   const authDate = Number(params.get('auth_date'));
+  const maxAuthAgeSeconds = isPrivatePersonalPreview()
+    ? PERSONAL_PREVIEW_MAX_AUTH_AGE_SECONDS
+    : PRODUCTION_MAX_AUTH_AGE_SECONDS;
   if (
     !Number.isSafeInteger(authDate)
-    || authDate < nowSeconds - MAX_AUTH_AGE_SECONDS
+    || authDate < nowSeconds - maxAuthAgeSeconds
     || authDate > nowSeconds + MAX_FUTURE_SKEW_SECONDS
   ) {
     throw new ApiError(401, 'TELEGRAM_AUTH_EXPIRED', 'Telegram authentication expired.');
