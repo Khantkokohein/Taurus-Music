@@ -4,6 +4,9 @@ import { ApiError } from './_apiError.js';
 const TELEGRAM_ID_PATTERN = /^[1-9][0-9]{0,15}$/;
 const TELEGRAM_USERNAME_PATTERN = /^[A-Za-z0-9_]{5,32}$/;
 const TELEGRAM_HASH_PATTERN = /^[a-f0-9]{64}$/;
+const TELEGRAM_SIGNATURE_PATTERN = /^[A-Za-z0-9_-]{80,90}={0,2}$/;
+const TELEGRAM_PRODUCTION_PUBLIC_KEY_HEX = 'e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d';
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 const MAX_INIT_DATA_BYTES = 16 * 1024;
 const MAX_AUTH_AGE_SECONDS = 5 * 60;
 const MAX_FUTURE_SKEW_SECONDS = 30;
@@ -51,14 +54,54 @@ const sanitizeDisplayName = (value: unknown) => (
     .slice(0, 80)
 );
 
+const verifyTelegramPublicSignature = ({
+  signatureValue,
+  dataCheckString,
+  botId,
+  publicKeyHex,
+}: {
+  signatureValue: string;
+  dataCheckString: string;
+  botId: string;
+  publicKeyHex: string;
+}) => {
+  if (
+    !TELEGRAM_ID_PATTERN.test(botId)
+    || !TELEGRAM_SIGNATURE_PATTERN.test(signatureValue)
+    || !TELEGRAM_HASH_PATTERN.test(publicKeyHex)
+  ) {
+    return false;
+  }
+  try {
+    const signature = Buffer.from(signatureValue, 'base64url');
+    const publicKeyBytes = Buffer.from(publicKeyHex, 'hex');
+    if (signature.length !== 64 || publicKeyBytes.length !== 32) return false;
+    const publicKey = crypto.createPublicKey({
+      key: Buffer.concat([ED25519_SPKI_PREFIX, publicKeyBytes]),
+      format: 'der',
+      type: 'spki',
+    });
+    return crypto.verify(
+      null,
+      Buffer.from(`${botId}:WebAppData\n${dataCheckString}`, 'utf8'),
+      publicKey,
+      signature,
+    );
+  } catch {
+    return false;
+  }
+};
+
 export const verifyTelegramMiniAppData = ({
   initData,
-  botToken = String(process.env.TELEGRAM_BOT_TOKEN || ''),
+  botToken = String(process.env.TELEGRAM_BOT_TOKEN || '').trim(),
   nowSeconds = Math.floor(Date.now() / 1000),
+  telegramPublicKeyHex = TELEGRAM_PRODUCTION_PUBLIC_KEY_HEX,
 }: {
   initData: string;
   botToken?: string;
   nowSeconds?: number;
+  telegramPublicKeyHex?: string;
 }): VerifiedTelegramMiniAppUser => {
   if (!botToken) {
     throw new ApiError(
@@ -98,8 +141,15 @@ export const verifyTelegramMiniAppData = ({
     .createHmac('sha256', secretKey)
     .update(dataCheckString)
     .digest('hex');
+  const botId = String(botToken.split(':', 1)[0] || '');
+  const publicSignatureValid = verifyTelegramPublicSignature({
+    signatureValue: String(params.get('signature') || ''),
+    dataCheckString,
+    botId,
+    publicKeyHex: telegramPublicKeyHex,
+  });
 
-  if (!safeEqualHex(receivedHash, expectedHash)) {
+  if (!publicSignatureValid && !safeEqualHex(receivedHash, expectedHash)) {
     throw new ApiError(401, 'TELEGRAM_AUTH_INVALID', 'Telegram authentication is invalid.');
   }
 

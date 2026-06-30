@@ -60,6 +60,40 @@ const signInitData = ({
   return values.toString();
 };
 
+const signInitDataWithTelegramPublicSignature = ({
+  privateKey,
+  botId,
+  authDate,
+}: {
+  privateKey: crypto.KeyObject;
+  botId: string;
+  authDate: number;
+}) => {
+  const values = new URLSearchParams({
+    auth_date: String(authDate),
+    query_id: 'AAEAA-public-signature-query',
+    user: JSON.stringify({
+      id: 123456789,
+      first_name: 'Taurus',
+      last_name: 'Family',
+      username: 'taurus_family',
+      language_code: 'en',
+    }),
+  });
+  const dataCheckString = [...values.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n');
+  const signature = crypto.sign(
+    null,
+    Buffer.from(`${botId}:WebAppData\n${dataCheckString}`, 'utf8'),
+    privateKey,
+  );
+  values.set('signature', signature.toString('base64url'));
+  values.set('hash', '0'.repeat(64));
+  return values.toString();
+};
+
 test('verifies current Telegram Mini App data and builds a stable Firebase UID', () => {
   const nowSeconds = 1782831600;
   const verified = verifyTelegramMiniAppData({
@@ -100,6 +134,24 @@ test('rejects tampered and stale Telegram Mini App data', () => {
     }),
     (error) => error instanceof ApiError && error.code === 'TELEGRAM_AUTH_EXPIRED',
   );
+});
+
+test('accepts Telegram public signatures even after a bot token rotation', () => {
+  const nowSeconds = 1782831600;
+  const botId = '1234567890';
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
+  const publicKeyDer = publicKey.export({ format: 'der', type: 'spki' });
+  const verified = verifyTelegramMiniAppData({
+    initData: signInitDataWithTelegramPublicSignature({
+      privateKey,
+      botId,
+      authDate: nowSeconds,
+    }),
+    botToken: `${botId}:stale-token-is-not-used-for-public-signature-validation`,
+    telegramPublicKeyHex: publicKeyDer.subarray(-32).toString('hex'),
+    nowSeconds,
+  });
+  assert.equal(verified.id, '123456789');
 });
 
 test('family allowlist is exact and owner status is separate', { concurrency: false }, () => {
