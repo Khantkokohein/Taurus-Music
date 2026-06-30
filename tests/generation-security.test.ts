@@ -38,6 +38,23 @@ const user = (uid: string) => ({ uid, email: `${uid}@example.test`, admin: false
 beforeEach(() => {
   process.env.GENERATION_CREDIT_COST = '5';
   process.env.GENERATION_RATE_LIMIT_PER_MINUTE = '4';
+  delete process.env.APP_MODE;
+  delete process.env.VERCEL_ENV;
+  delete process.env.TELEGRAM_ALLOWED_USER_IDS;
+  delete process.env.TELEGRAM_OWNER_USER_IDS;
+});
+
+test('private family preview reserves without Firestore profile data', { concurrency: false }, async () => {
+  process.env.APP_MODE = 'personal';
+  process.env.VERCEL_ENV = 'preview';
+  process.env.TELEGRAM_ALLOWED_USER_IDS = '123456789';
+  const reservation = await reserveGeneration(
+    user('telegram:123456789'),
+    'lyria-test',
+    now,
+  );
+  assert.equal(reservation.personalPreview, true);
+  assert.equal(reservation.usage.creditCost, 0);
 });
 
 test('atomically reserves credits and usage counters', { concurrency: false }, async () => {

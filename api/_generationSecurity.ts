@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { ApiError } from './_apiError.js';
 import { adminTimestamp, getAdminDb } from './_firebaseAdmin.js';
 import { isPersonalAccessUser } from './_personalAccess.js';
+import { isPrivatePersonalPreview } from './_telegramMiniAppAuth.js';
 import type { VerifiedFirebaseUser } from './_serverAuth.js';
 
 const FREE_PERIOD_LIMIT = 60;
@@ -9,6 +10,7 @@ const FREE_DAILY_LIMIT = 60;
 const DEFAULT_CREDIT_COST = 5;
 const DEFAULT_RATE_LIMIT = 4;
 const RATE_WINDOW_MS = 60_000;
+const personalPreviewRateWindows = new Map<string, { startedAt: number; count: number }>();
 
 const boundedInteger = (value: string | undefined, fallback: number, min: number, max: number) => {
   const parsed = Number(value);
@@ -68,6 +70,43 @@ export type GenerationReservation = {
   uid: string;
   profile: Record<string, any>;
   usage: ReservationUsage;
+  personalPreview?: boolean;
+};
+
+const reservePersonalPreviewGeneration = (
+  user: VerifiedFirebaseUser,
+  jobId: string,
+  nowMs: number,
+): GenerationReservation => {
+  const rateLimit = getGenerationRateLimit();
+  const current = personalPreviewRateWindows.get(user.uid);
+  const sameWindow = !!current && nowMs - current.startedAt < RATE_WINDOW_MS;
+  const count = sameWindow ? current.count : 0;
+  if (count >= rateLimit) {
+    throw new ApiError(429, 'RATE_LIMITED', 'Too many generation requests. Please wait and try again.');
+  }
+  personalPreviewRateWindows.set(user.uid, {
+    startedAt: sameWindow ? current.startedAt : nowMs,
+    count: count + 1,
+  });
+  return {
+    jobId,
+    uid: user.uid,
+    personalPreview: true,
+    profile: {
+      uid: user.uid,
+      tier: 'personal',
+      role: user.admin ? 'admin' : 'user',
+      premiumActive: true,
+    },
+    usage: {
+      creditCost: 0,
+      pointsRemaining: Number.MAX_SAFE_INTEGER,
+      weeklyRemaining: Number.MAX_SAFE_INTEGER,
+      monthlyRemaining: Number.MAX_SAFE_INTEGER,
+      dailyRemaining: Number.MAX_SAFE_INTEGER,
+    },
+  };
 };
 
 export const reserveGeneration = async (
@@ -75,15 +114,19 @@ export const reserveGeneration = async (
   requestedModel: string,
   now = new Date(),
 ): Promise<GenerationReservation> => {
+  const jobId = crypto.randomUUID();
+  const nowMs = now.getTime();
+  const trustedPersonalUser = isPersonalAccessUser(user.uid);
+  if (trustedPersonalUser && isPrivatePersonalPreview()) {
+    return reservePersonalPreviewGeneration(user, jobId, nowMs);
+  }
+
   const db = getAdminDb();
   const userRef = db.collection('users').doc(user.uid);
   const rateRef = userRef.collection('security').doc('generation');
-  const jobId = crypto.randomUUID();
   const jobRef = userRef.collection('generationJobs').doc(jobId);
-  const nowMs = now.getTime();
   const today = dateKey(now);
   const month = monthKey(now);
-  const trustedPersonalUser = isPersonalAccessUser(user.uid);
   const creditCost = user.admin || trustedPersonalUser ? 0 : getGenerationCreditCost();
   const rateLimit = user.admin || trustedPersonalUser
     ? Math.max(getGenerationRateLimit(), 20)
@@ -198,6 +241,7 @@ export const completeGeneration = async (
   reservation: GenerationReservation,
   output: { model?: string; storageObject?: string; mimeType?: string } = {},
 ) => {
+  if (reservation.personalPreview) return;
   const db = getAdminDb();
   const jobRef = db.collection('users').doc(reservation.uid).collection('generationJobs').doc(reservation.jobId);
   await db.runTransaction(async (transaction) => {
@@ -214,6 +258,7 @@ export const completeGeneration = async (
 };
 
 export const refundGeneration = async (reservation: GenerationReservation) => {
+  if (reservation.personalPreview) return;
   const db = getAdminDb();
   const userRef = db.collection('users').doc(reservation.uid);
   const jobRef = userRef.collection('generationJobs').doc(reservation.jobId);
