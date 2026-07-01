@@ -14,7 +14,7 @@
     "test:security": "npm run test:rules && npm run test:api-security"
   },
   "dependencies": {
-    "@google/genai": "^1.29.0",
+    "@google/genai": "^2.10.0",
     "@tailwindcss/vite": "^4.1.14",
     "@tonconnect/ui-react": "^2.4.4",
     "@vercel/oidc": "^3.7.1",

@@ -5,6 +5,80 @@ const DEFAULT_GEMINI_MUSIC_MODEL = 'lyria-3-pro-preview';
 const MODEL_PATTERN = /^lyria-3-[a-z0-9._-]{1,64}$/;
 const MAX_AUDIO_BYTES = 80 * 1024 * 1024;
 
+type LyriaContent = {
+  type?: string;
+  data?: string;
+  mime_type?: string;
+  text?: string;
+};
+
+type LyriaInteraction = {
+  output_audio?: LyriaContent;
+  output_text?: string;
+  steps?: Array<{
+    type?: string;
+    content?: LyriaContent[];
+  }>;
+};
+
+const readAudioContent = (content: LyriaContent | undefined) => {
+  if (
+    content?.type !== 'audio'
+    || typeof content.data !== 'string'
+    || !content.data
+  ) {
+    return null;
+  }
+
+  const audio = Buffer.from(content.data, 'base64');
+  const mimeType = String(content.mime_type || 'audio/mpeg').toLowerCase();
+  if (
+    audio.byteLength === 0
+    || audio.byteLength > MAX_AUDIO_BYTES
+    || !mimeType.startsWith('audio/')
+  ) {
+    return null;
+  }
+
+  return { audio, mimeType };
+};
+
+export const parseGeminiMusicInteraction = (result: LyriaInteraction) => {
+  const textParts: string[] = [];
+  if (typeof result.output_text === 'string' && result.output_text.trim()) {
+    textParts.push(result.output_text.trim());
+  }
+
+  let parsedAudio = readAudioContent(result.output_audio);
+  for (const step of result.steps || []) {
+    if (step.type !== 'model_output') continue;
+    for (const content of step.content || []) {
+      if (
+        content.type === 'text'
+        && typeof content.text === 'string'
+        && content.text.trim()
+        && !textParts.includes(content.text.trim())
+      ) {
+        textParts.push(content.text.trim());
+      }
+      parsedAudio ||= readAudioContent(content);
+    }
+  }
+
+  if (!parsedAudio) {
+    throw new ApiError(
+      502,
+      'GEMINI_MUSIC_NO_AUDIO',
+      'Lyria 3 Pro did not return an audio track.',
+    );
+  }
+
+  return {
+    ...parsedAudio,
+    lyrics: textParts.join('\n\n'),
+  };
+};
+
 export const getGeminiMusicModel = () => {
   const configured = String(
     process.env.GEMINI_MUSIC_MODEL || DEFAULT_GEMINI_MUSIC_MODEL,
@@ -43,48 +117,37 @@ export const generateGeminiFullSong = async ({
   const model = getGeminiMusicModel();
   try {
     const client = new GoogleGenAI({ apiKey });
-    const result = await client.models.generateContent({
+    const result = await client.interactions.create({
       model,
-      contents: prompt.slice(0, 12_000),
+      input: prompt.slice(0, 12_000),
     });
-
-    const textParts: string[] = [];
-    let audio: Buffer | null = null;
-    let mimeType = 'audio/mpeg';
-    for (const part of result.candidates?.[0]?.content?.parts || []) {
-      if (typeof part.text === 'string' && part.text.trim()) {
-        textParts.push(part.text.trim());
-      }
-      if (part.inlineData?.data) {
-        const candidate = Buffer.from(part.inlineData.data, 'base64');
-        const candidateMimeType = String(part.inlineData.mimeType || '');
-        if (
-          candidate.byteLength > 0
-          && candidate.byteLength <= MAX_AUDIO_BYTES
-          && candidateMimeType.startsWith('audio/')
-        ) {
-          audio = candidate;
-          mimeType = candidateMimeType;
-        }
-      }
-    }
-
-    if (!audio) {
-      throw new ApiError(
-        502,
-        'GEMINI_MUSIC_NO_AUDIO',
-        'Lyria 3 Pro did not return an audio track.',
-      );
-    }
+    const parsed = parseGeminiMusicInteraction(result);
 
     return {
-      audio,
-      mimeType,
-      lyrics: textParts.join('\n\n'),
+      ...parsed,
       model,
     };
   } catch (error) {
     if (error instanceof ApiError) throw error;
+    const providerStatus = Number(
+      (error as { status?: unknown; statusCode?: unknown })?.status
+      || (error as { statusCode?: unknown })?.statusCode
+      || 0,
+    );
+    if (providerStatus === 429) {
+      throw new ApiError(
+        429,
+        'GEMINI_MUSIC_RATE_LIMITED',
+        'Lyria 3 Pro is busy. Please wait briefly and try again.',
+      );
+    }
+    if (providerStatus === 403 || providerStatus === 404) {
+      throw new ApiError(
+        502,
+        'GEMINI_MUSIC_MODEL_UNAVAILABLE',
+        'Lyria 3 Pro access is not enabled for this Gemini API key.',
+      );
+    }
     throw new ApiError(
       502,
       'GEMINI_MUSIC_FAILED',
