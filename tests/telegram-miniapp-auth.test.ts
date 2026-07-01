@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ApiError } from '../api/_apiError.js';
+import { shouldCheckFirebaseTokenRevocation } from '../api/_serverAuth.js';
 import {
   buildTelegramFirebaseUid,
   isPrivatePersonalPreview,
@@ -189,11 +190,14 @@ test('only private personal previews may skip durable replay storage', { concurr
   process.env.APP_MODE = 'personal';
   process.env.VERCEL_ENV = 'preview';
   assert.equal(isPrivatePersonalPreview(), true);
+  assert.equal(shouldCheckFirebaseTokenRevocation(), false);
   process.env.VERCEL_ENV = 'production';
   assert.equal(isPrivatePersonalPreview(), false);
+  assert.equal(shouldCheckFirebaseTokenRevocation(), true);
   process.env.APP_MODE = 'production';
   process.env.VERCEL_ENV = 'preview';
   assert.equal(isPrivatePersonalPreview(), false);
+  assert.equal(shouldCheckFirebaseTokenRevocation(), true);
 });
 
 test('family allowlist fails closed when no Telegram IDs are configured', { concurrency: false }, () => {

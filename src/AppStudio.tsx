@@ -81,7 +81,7 @@ const STUDIO_PAGES: StudioPage[] = ['landing', 'create', 'history', 'wallet', 'p
 const STUDIO_NAV_PAGES: StudioPage[] = ['landing', 'create', 'history', 'challenge', 'wallet', 'plans'];
 const STUDIO_PANELS: Array<Exclude<StudioPanel, null>> = ['voice', 'developers', 'admin'];
 const postJson = async <T,>(url: string, body: Record<string, unknown>): Promise<T> => {
-  const token = await auth.currentUser?.getIdToken();
+  const token = await auth.currentUser?.getIdToken(true);
   if (!token) throw new Error('Open Taurus from Telegram first.');
   const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
   const payload = await response.json().catch(() => ({}));

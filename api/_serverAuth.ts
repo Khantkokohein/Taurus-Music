@@ -1,11 +1,16 @@
 import { ApiError } from './_apiError.js';
 import { getAdminAuth } from './_firebaseAdmin.js';
+import { isPrivatePersonalPreview } from './_telegramMiniAppAuth.js';
 
 export interface VerifiedFirebaseUser {
   uid: string;
   email?: string;
   admin: boolean;
 }
+
+export const shouldCheckFirebaseTokenRevocation = () => (
+  !isPrivatePersonalPreview()
+);
 
 export const requireFirebaseAuth = async (req: any): Promise<VerifiedFirebaseUser> => {
   const authorization = req.headers?.authorization || req.headers?.Authorization || '';
@@ -18,7 +23,10 @@ export const requireFirebaseAuth = async (req: any): Promise<VerifiedFirebaseUse
   }
 
   try {
-    const decoded = await getAdminAuth().verifyIdToken(idToken, true);
+    const decoded = await getAdminAuth().verifyIdToken(
+      idToken,
+      shouldCheckFirebaseTokenRevocation(),
+    );
     return {
       uid: decoded.uid,
       email: decoded.email,
