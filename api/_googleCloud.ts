@@ -6,9 +6,11 @@ import {
   type BaseExternalAccountClient,
 } from 'google-auth-library';
 import { ApiError } from './_apiError.js';
+import { parseGeminiMusicInteraction } from './_geminiMusic.js';
 
 const CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 const SIGNED_URL_TTL_SECONDS = 10 * 60;
+const VERTEX_LYRIA_MODEL = 'lyria-3-pro-preview';
 
 type GoogleCloudConfig = {
   projectId: string;
@@ -206,6 +208,61 @@ export const uploadGeneratedAudio = async ({
   return {
     objectName,
     downloadUrl: await createSignedDownloadUrl(config.storageBucket, objectName),
+  };
+};
+
+export const getVertexLyriaEndpoint = (projectId: string) => (
+  `https://aiplatform.googleapis.com/v1beta1/projects/${encodeURIComponent(projectId)}/locations/global/interactions`
+);
+
+export const generateVertexLyriaFullSong = async ({
+  prompt,
+}: {
+  prompt: string;
+}) => {
+  const config = getGoogleCloudConfig();
+  const accessToken = await getGoogleAccessToken();
+  const response = await fetch(getVertexLyriaEndpoint(config.projectId), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: VERTEX_LYRIA_MODEL,
+      input: [{
+        type: 'text',
+        text: prompt.slice(0, 12_000),
+      }],
+    }),
+    signal: AbortSignal.timeout(240_000),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (response.status === 429) {
+      throw new ApiError(
+        429,
+        'VERTEX_LYRIA_RATE_LIMITED',
+        'Vertex Lyria 3 Pro is busy. Please wait briefly and try again.',
+      );
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new ApiError(
+        502,
+        'VERTEX_LYRIA_ACCESS_DENIED',
+        'The Taurus Vertex runtime does not have Lyria 3 Pro access yet.',
+      );
+    }
+    throw new ApiError(
+      502,
+      'VERTEX_LYRIA_FAILED',
+      'Vertex Lyria 3 Pro did not complete the song.',
+    );
+  }
+
+  return {
+    ...parseGeminiMusicInteraction(payload),
+    model: VERTEX_LYRIA_MODEL,
   };
 };
 

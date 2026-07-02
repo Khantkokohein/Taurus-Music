@@ -77,6 +77,23 @@ test('parses Lyria audio and lyrics from model output steps', () => {
   assert.equal(parsed.lyrics, 'Step lyrics');
 });
 
+test('parses Vertex Lyria audio and lyrics from interaction outputs', () => {
+  const parsed = parseGeminiMusicInteraction({
+    outputs: [
+      { type: 'text', text: 'Vertex lyrics' },
+      {
+        type: 'audio',
+        data: Buffer.from('vertex-audio').toString('base64'),
+        mime_type: 'audio/mpeg',
+      },
+    ],
+  });
+
+  assert.equal(parsed.audio.toString(), 'vertex-audio');
+  assert.equal(parsed.mimeType, 'audio/mpeg');
+  assert.equal(parsed.lyrics, 'Vertex lyrics');
+});
+
 test('fails closed when Lyria returns no inline audio', () => {
   assert.throws(
     () => parseGeminiMusicInteraction({

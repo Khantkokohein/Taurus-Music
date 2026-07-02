@@ -15,6 +15,7 @@ type LyriaContent = {
 type LyriaInteraction = {
   output_audio?: LyriaContent;
   output_text?: string;
+  outputs?: LyriaContent[];
   steps?: Array<{
     type?: string;
     content?: LyriaContent[];
@@ -50,6 +51,17 @@ export const parseGeminiMusicInteraction = (result: LyriaInteraction) => {
   }
 
   let parsedAudio = readAudioContent(result.output_audio);
+  for (const content of result.outputs || []) {
+    if (
+      content.type === 'text'
+      && typeof content.text === 'string'
+      && content.text.trim()
+      && !textParts.includes(content.text.trim())
+    ) {
+      textParts.push(content.text.trim());
+    }
+    parsedAudio ||= readAudioContent(content);
+  }
   for (const step of result.steps || []) {
     if (step.type !== 'model_output') continue;
     for (const content of step.content || []) {

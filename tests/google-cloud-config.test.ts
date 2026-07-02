@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { ApiError } from '../api/_apiError.js';
 import {
   getGoogleCloudConfig,
+  getVertexLyriaEndpoint,
   hasGoogleOidcConfig,
 } from '../api/_googleCloud.js';
 
@@ -49,4 +50,11 @@ test('builds non-secret Google OIDC configuration from environment identifiers',
   assert.equal(hasGoogleOidcConfig(), true);
   assert.equal(config.vertexLocation, 'us-central1');
   assert.match(config.audience, /^https:\/\/iam\.googleapis\.com\/projects\//);
+});
+
+test('builds the official global Vertex Lyria 3 interactions endpoint', () => {
+  assert.equal(
+    getVertexLyriaEndpoint('project with spaces'),
+    'https://aiplatform.googleapis.com/v1beta1/projects/project%20with%20spaces/locations/global/interactions',
+  );
 });

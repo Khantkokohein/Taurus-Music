@@ -6,7 +6,11 @@ import {
   type GenerationReservation,
 } from './_generationSecurity.js';
 import { generateGeminiFullSong, getGeminiMusicModel } from './_geminiMusic.js';
-import { uploadGeneratedAudio } from './_googleCloud.js';
+import {
+  generateVertexLyriaFullSong,
+  hasGoogleOidcConfig,
+  uploadGeneratedAudio,
+} from './_googleCloud.js';
 import { requirePersonalAccess } from './_personalAccess.js';
 import { requireFirebaseAuth } from './_serverAuth.js';
 
@@ -80,9 +84,9 @@ const generateSongAudio = async ({
     `Avoid these production failures: ${negativeProductionRules || 'short preview, spoken narration, thin demo, weak drums, muddy bass, abrupt cutoff, copyrighted imitation'}.`,
   ].join(' ');
 
-  const generated = await generateGeminiFullSong({
-    prompt: fullPrompt,
-  });
+  const generated = hasGoogleOidcConfig()
+    ? await generateVertexLyriaFullSong({ prompt: fullPrompt })
+    : await generateGeminiFullSong({ prompt: fullPrompt });
 
   return {
     ...generated,
