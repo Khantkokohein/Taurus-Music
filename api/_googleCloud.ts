@@ -130,6 +130,7 @@ const createSignedDownloadUrl = async (
     'X-Goog-Date': iso,
     'X-Goog-Expires': String(Math.max(60, Math.min(expiresInSeconds, 900))),
     'X-Goog-SignedHeaders': 'host',
+    'response-content-disposition': 'attachment',
   });
   query.sort();
   const canonicalRequest = [

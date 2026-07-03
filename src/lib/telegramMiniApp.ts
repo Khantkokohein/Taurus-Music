@@ -5,6 +5,14 @@ type TelegramWebApp = {
   initData: string;
   ready: () => void;
   expand: () => void;
+  downloadFile?: (
+    params: {
+      url: string;
+      file_name: string;
+    },
+    callback?: (accepted: boolean) => void,
+  ) => void;
+  openLink?: (url: string) => void;
   openTelegramLink?: (url: string) => void;
 };
 
@@ -90,4 +98,30 @@ export const openTaurusTelegramMiniApp = () => {
     return;
   }
   window.location.assign(url);
+};
+
+export const requestTelegramFileDownload = (
+  url: string,
+  fileName: string,
+) => {
+  const webApp = window.Telegram?.WebApp;
+  if (!webApp?.downloadFile || !url.startsWith('https://')) {
+    return false;
+  }
+
+  webApp.downloadFile({
+    url,
+    file_name: fileName,
+  });
+  return true;
+};
+
+export const openExternalDownload = (url: string) => {
+  const webApp = window.Telegram?.WebApp;
+  if (!webApp?.openLink || !url.startsWith('https://')) {
+    return false;
+  }
+
+  webApp.openLink(url);
+  return true;
 };

@@ -8,15 +8,21 @@ import DeveloperHub from './components/DeveloperHub';
 import TaurusLandingPage from './components/TaurusLandingPage';
 import TaurusVoiceHub from './components/TaurusVoiceHub';
 import { auth, db, logout, getUserProfile, createUserProfile, claimDailyPointsIfNeeded, registerForChallenge, saveChallengeEntry, toggleChallengeReaction, addChallengeComment, approvePayment, rejectPayment, saveSong, uploadSongAudio, uploadVoiceProfileSample, saveVoiceProfile, uploadRemixReference, getEffectivePlanConfig, getTimestampMillis, getChallengeQuotaState, isChallengeRegistrationOpen, isChallengeCreationOpen, isSubscriptionExpired, buildTaurusAccountCode, PLAN_CONFIGS, GENERATE_FULL_SONG_COST, UserProfile, ChallengeEntry } from './firebase';
+import {
+  buildAudioDownloadFileName,
+  getTrustedAudioDownloadUrl,
+} from './lib/audioDownload';
 import { getGeneratedAudioBlob } from './lib/generatedAudio';
 import {
   authenticateTelegramMiniApp,
   getTelegramInitData,
   initializeTelegramMiniApp,
+  openExternalDownload,
   openTaurusTelegramMiniApp,
+  requestTelegramFileDownload,
 } from './lib/telegramMiniApp';
 
-interface Song { id: string; userId?: string; idea: string; prompt: string; audioUrl: string; storagePath?: string; mimeType?: string; lyrics: string; lyriaModel?: LyriaModelId; editorOperation?: string; instrumentTags?: string[]; voiceStrength?: string; voiceProfileId?: string; voiceProfileName?: string; remixMode?: string; remixReferencePath?: string; remixReferenceName?: string; createdAt: number; }
+interface Song { id: string; userId?: string; idea: string; prompt: string; audioUrl: string; downloadUrl?: string; storagePath?: string; mimeType?: string; lyrics: string; lyriaModel?: LyriaModelId; editorOperation?: string; instrumentTags?: string[]; voiceStrength?: string; voiceProfileId?: string; voiceProfileName?: string; remixMode?: string; remixReferencePath?: string; remixReferenceName?: string; createdAt: number; }
 interface VoiceProfile { id: string; userId?: string; name: string; sampleUrl: string; storagePath: string; contentType: string; consent: boolean; consentText: string; createdAt: number; }
 type GenerateResponse = { audioBase64?: string; downloadUrl?: string; mimeType?: string; lyrics?: string; model?: string; usage?: { creditCost: number; pointsRemaining: number; }; };
 type AudioEditOperation = 'crop' | 'fade' | 'split' | 'export' | 'selected-range-export';
@@ -461,7 +467,34 @@ export default function AppStudio() {
     setCurrentSong(song); a.loop = options.loop === true; a.src = song.audioUrl; await a.play(); setIsPlaying(true);
   };
 
-  const downloadSong = (song: Song) => { const link = document.createElement('a'); link.href = song.audioUrl; link.download = `${song.idea || 'taurus-song'}.mp3`.replace(/[^a-z0-9._-]+/gi, '-'); link.click(); };
+  const downloadSong = (song: Song) => {
+    try {
+      const url = getTrustedAudioDownloadUrl(song.downloadUrl, song.audioUrl);
+      const fileName = buildAudioDownloadFileName(
+        song.idea || 'taurus-song',
+        song.mimeType,
+      );
+
+      if (requestTelegramFileDownload(url, fileName)) {
+        setProgress('Download ready. Confirm it in Telegram.');
+        return;
+      }
+      if (openExternalDownload(url)) {
+        setProgress('Download opened in your browser.');
+        return;
+      }
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      link.rel = 'noopener';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Download failed.');
+    }
+  };
   const setFeedback = (label: string) => setProgress(`Feedback saved: ${label}. Next version will tune stronger.`);
   const saveEditedOutputs = async (sourceSong: Song, response: AudioEditResponse) => {
     if (!user) throw new Error('Open Taurus from Telegram first.');
@@ -709,6 +742,7 @@ export default function AppStudio() {
             ...songDetails,
             userId: user.uid,
             audioUrl: URL.createObjectURL(blob),
+            downloadUrl: response.downloadUrl,
             createdAt: Date.now(),
           };
           setHistory(current => [inMemorySong, ...current]);

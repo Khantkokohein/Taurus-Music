@@ -669,7 +669,11 @@ export const uploadSongAudio = async (userId: string, songId: string, blob: Blob
   const extension = contentType.includes('wav') ? 'wav' : contentType.includes('ogg') ? 'ogg' : 'mp3';
   const storagePath = `users/${userId}/songs/${songId}/audio.${extension}`;
   const audioRef = ref(storage, storagePath);
-  await uploadBytes(audioRef, blob, { contentType, customMetadata: { userId, songId } });
+  await uploadBytes(audioRef, blob, {
+    contentDisposition: 'attachment',
+    contentType,
+    customMetadata: { userId, songId },
+  });
   return { audioUrl: await getDownloadURL(audioRef), storagePath, mimeType: contentType };
 };
 
